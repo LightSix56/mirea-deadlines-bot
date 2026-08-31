@@ -4,6 +4,7 @@ import json
 import time
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
@@ -50,8 +51,16 @@ TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 API_CLIENT: Optional[httpx.AsyncClient] = None
 POLL_CLIENT: Optional[httpx.AsyncClient] = None
 
-# Кэш дедлайнов в оперативной памяти (кнопки читают ТОЛЬКО его, 0 запросов к сайту МИРЭА)
+# Кэш в памяти
 CACHED_EVENTS: List[DeadlineEvent] = []
+
+
+def clean_text_for_markdown(text: str) -> str:
+    """Удаляет спецсимволы, ломающие Markdown разметку Telegram"""
+    if not text:
+        return ""
+    text = text.replace("_", " ").replace("[", "(").replace("]", ")").replace("*", "").replace("`", "")
+    return re.sub(r'\s+', ' ', text).strip()
 
 
 def load_events_state() -> Dict[str, Any]:
@@ -80,7 +89,6 @@ def get_moodle_client() -> MoodleClient:
 
 
 async def fetch_moodle_calendar_to_cache() -> List[DeadlineEvent]:
-    """Единственная функция, делающая сетевой запрос к СДО МИРЭА"""
     global CACHED_EVENTS
     logger.info("--> Запрос к календарю СДО МИРЭА...")
     client = get_moodle_client()
@@ -98,12 +106,15 @@ def format_deadline_card(event: DeadlineEvent, num: Optional[int] = None) -> str
     prefix = f"{num}. " if num is not None else ""
     icon = "📌"
     
+    clean_name = clean_text_for_markdown(event.clean_name)
+    clean_course = clean_text_for_markdown(event.course_name)
+    
     task_link = f"[📝 К заданию]({event.url})"
     event_link = f"[📚 Страница в СДО]({event.event_view_url})"
     
     return (
-        f"{prefix}{icon} *{event.clean_name}*\n"
-        f"📚 *Предмет:* {event.course_name}\n"
+        f"{prefix}{icon} *{clean_name}*\n"
+        f"📚 *Предмет:* {clean_course}\n"
         f"⏰ *Срок сдачи:* `{event.formatted_date}`\n"
         f"⏳ *Статус:* _{event.time_left_str}_\n"
         f"🔗 {task_link} • {event_link}\n"
@@ -133,10 +144,40 @@ async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
         API_CLIENT = httpx.AsyncClient(timeout=15.0)
     try:
         resp = await API_CLIENT.post(f"{TG_API_URL}/{method}", json=payload or {})
-        return resp.json()
+        data = resp.json()
+        
+        # Игнорируем штатную ситуацию "message is not modified"
+        desc = data.get("description", "")
+        if not data.get("ok") and "message is not modified" not in desc:
+            logger.warning(f"Telegram API ({method}): {desc}")
+            
+        return data
     except Exception as e:
-        logger.error(f"Ошибка Telegram API ({method}): {e}")
+        logger.error(f"Сетевая ошибка Telegram API ({method}): {e}")
         return {}
+
+
+async def send_or_edit_message(chat_id: str, message_id: Optional[int], text: str, reply_markup: Optional[Dict] = None):
+    """Пытается отредактировать сообщение на месте, при невозможности отправляет новое"""
+    if message_id:
+        res = await tg_api("editMessageText", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+            "reply_markup": reply_markup
+        })
+        if res.get("ok") or "message is not modified" in res.get("description", ""):
+            return
+
+    await tg_api("sendMessage", {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
+        "reply_markup": reply_markup
+    })
 
 
 async def set_bot_menu_commands():
@@ -150,7 +191,6 @@ async def set_bot_menu_commands():
 
 
 async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
-    """Показывает главное меню (0 запросов к МИРЭА)"""
     kb = {
         "inline_keyboard": [
             [{"text": "📋 Ближайшие дедлайны (до 3 нед.)", "callback_data": "show_deadlines"}],
@@ -167,25 +207,10 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
         "✅ *Отметки:* любую работу можно отметить сданной кнопкой `[✅ Сдал #N]`.\n\n"
         "Выберите действие кнопками ниже:"
     )
-    if message_id:
-        await tg_api("editMessageText", {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "reply_markup": kb
-        })
-    else:
-        await tg_api("sendMessage", {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "reply_markup": kb
-        })
+    await send_or_edit_message(chat_id, message_id, text, kb)
 
 
 async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_id: Optional[int] = None):
-    """Показывает дедлайны ТОЛЬКО из локальной памяти (0 запросов к МИРЭА)"""
     global CACHED_EVENTS
     try:
         all_events = CACHED_EVENTS
@@ -201,7 +226,6 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
         future_nearest_event: Optional[DeadlineEvent] = None
 
         for event in all_events:
-            # Скрываем не открывшиеся тесты
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
@@ -229,9 +253,11 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
             nearest_info = ""
             if future_nearest_event:
                 days_away = (future_nearest_event.due_timestamp - now_ts) / 86400.0
+                f_name = clean_text_for_markdown(future_nearest_event.clean_name)
+                f_course = clean_text_for_markdown(future_nearest_event.course_name)
                 nearest_info = (
                     f"\n\n🗓 *Ближайшая сдача:* `{future_nearest_event.formatted_date}` (через {days_away:.0f} дн.)\n"
-                    f"📌 *{future_nearest_event.clean_name}* ({future_nearest_event.course_name})"
+                    f"📌 *{f_name}* ({f_course})"
                 )
 
             text = (
@@ -245,21 +271,7 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
                     [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
                 ]
             }
-            if message_id:
-                await tg_api("editMessageText", {
-                    "chat_id": chat_id,
-                    "message_id": message_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                    "reply_markup": kb
-                })
-            else:
-                await tg_api("sendMessage", {
-                    "chat_id": chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                    "reply_markup": kb
-                })
+            await send_or_edit_message(chat_id, message_id, text, kb)
             return
 
         msg_parts = []
@@ -305,23 +317,7 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
         inline_keyboard.append(menu_row)
 
         final_text = "\n\n".join(msg_parts)
-        if message_id:
-            await tg_api("editMessageText", {
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": final_text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True,
-                "reply_markup": {"inline_keyboard": inline_keyboard}
-            })
-        else:
-            await tg_api("sendMessage", {
-                "chat_id": chat_id,
-                "text": final_text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True,
-                "reply_markup": {"inline_keyboard": inline_keyboard}
-            })
+        await send_or_edit_message(chat_id, message_id, final_text, {"inline_keyboard": inline_keyboard})
 
         if new_events:
             for ev in new_events:
@@ -336,7 +332,6 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
 
 
 async def handle_completed_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает сданные работы из локальной базы (0 запросов к МИРЭА)"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -353,21 +348,7 @@ async def handle_completed_command(chat_id: str, message_id: Optional[int] = Non
             ]
         }
         text = "📭 *Список сданных работ пуст.*\n\nКогда вы сдадите работу, нажмите кнопку *«✅ Сдал #N»* в списке дедлайнов."
-        if message_id:
-            await tg_api("editMessageText", {
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": text,
-                "parse_mode": "Markdown",
-                "reply_markup": kb
-            })
-        else:
-            await tg_api("sendMessage", {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown",
-                "reply_markup": kb
-            })
+        await send_or_edit_message(chat_id, message_id, text, kb)
         return
 
     completed_list.sort(key=lambda x: x[1].get("completed_at", 0), reverse=True)
@@ -379,8 +360,9 @@ async def handle_completed_command(chat_id: str, message_id: Optional[int] = Non
     for idx, (ev_id, ev_data) in enumerate(completed_list[:15], 1):
         name = ev_data.get("name", "Без названия")
         course = ev_data.get("course", "СДО")
-        clean = name.replace(" - срок сдачи", "").replace(" срок сдачи", "").replace(" is due", "")
-        text_parts.append(f"{idx}. *{clean}* — _Сдано_\n   📚 _{course}_\n")
+        clean_name = clean_text_for_markdown(name.replace(" - срок сдачи", "").replace(" срок сдачи", "").replace(" is due", ""))
+        clean_c = clean_text_for_markdown(course)
+        text_parts.append(f"{idx}. *{clean_name}* — _Сдано_\n   📚 _{clean_c}_\n")
         row.append({"text": f"↩️ Вернуть #{idx}", "callback_data": f"undone_{ev_id}"})
         if len(row) == 3:
             buttons.append(row)
@@ -394,25 +376,10 @@ async def handle_completed_command(chat_id: str, message_id: Optional[int] = Non
     ])
 
     final_text = "\n".join(text_parts)
-    if message_id:
-        await tg_api("editMessageText", {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": final_text,
-            "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": buttons}
-        })
-    else:
-        await tg_api("sendMessage", {
-            "chat_id": chat_id,
-            "text": final_text,
-            "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": buttons}
-        })
+    await send_or_edit_message(chat_id, message_id, final_text, {"inline_keyboard": buttons})
 
 
 async def handle_mark_done(chat_id: str, message_id: Optional[int], event_id: str):
-    """Помечает работу сданной в локальной памяти (0 запросов к МИРЭА)"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -435,7 +402,6 @@ async def handle_mark_done(chat_id: str, message_id: Optional[int], event_id: st
 
 
 async def handle_mark_undone(chat_id: str, message_id: Optional[int], event_id: str):
-    """Возвращает работу из сданных в локальной памяти (0 запросов к МИРЭА)"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -449,7 +415,6 @@ async def handle_mark_undone(chat_id: str, message_id: Optional[int], event_id: 
 
 
 async def handle_force_refresh_command(chat_id: str, message_id: Optional[int] = None):
-    """Принудительное обновление: опрашивает МИРЭА и показывает свежие данные"""
     await fetch_moodle_calendar_to_cache()
     await handle_deadlines_command(chat_id, message_id=message_id)
 
@@ -514,11 +479,13 @@ async def background_monitoring_task():
                 if abs(time_shift) > 300:
                     old_dt = datetime.fromtimestamp(old_ts, tz=MSK_TZ).strftime("%d.%m.%Y в %H:%M МСК")
                     shift_info = format_time_diff(time_shift)
+                    c_name = clean_text_for_markdown(event.clean_name)
+                    c_course = clean_text_for_markdown(event.course_name)
 
                     text = (
                         f"🔄 *Внимание! Дедлайн изменен преподавателем:*\n\n"
-                        f"📌 *{event.clean_name}*\n"
-                        f"📚 *Предмет:* {event.course_name}\n"
+                        f"📌 *{c_name}*\n"
+                        f"📚 *Предмет:* {c_course}\n"
                         f"🗓 *Было:* `{old_dt}`\n"
                         f"⏰ *Стало:* `{event.formatted_date}` ({shift_info})\n"
                         f"⏳ *Статус:* _{event.time_left_str}_\n"
@@ -540,10 +507,12 @@ async def background_monitoring_task():
                 if event.is_opening:
                     if now_ts >= event.due_timestamp and (now_ts - event.due_timestamp) <= 43200:
                         if not event_state.get("opened_alert_sent", False):
+                            c_name = clean_text_for_markdown(event.clean_name)
+                            c_course = clean_text_for_markdown(event.course_name)
                             text = (
                                 f"🔓 *Открыт доступ к тесту / заданию!*\n\n"
-                                f"📌 *{event.clean_name}*\n"
-                                f"📚 *Предмет:* {event.course_name}\n"
+                                f"📌 *{c_name}*\n"
+                                f"📚 *Предмет:* {c_course}\n"
                                 f"⏰ *Открыто с:* `{event.formatted_date}`\n"
                                 f"🔗 [📝 Начать выполнение]({event.url}) • [📚 В СДО]({event.event_view_url})\n"
                             )
@@ -625,7 +594,7 @@ async def poll_telegram_updates():
             for update in updates:
                 offset = update["update_id"] + 1
 
-                # 1. Текстовые команды (чисто локальная обработка без ожидания сайта МИРЭА)
+                # 1. Текстовые сообщения
                 if "message" in update:
                     msg = update["message"]
                     chat_id = str(msg["chat"]["id"])
@@ -642,7 +611,7 @@ async def poll_telegram_updates():
                     elif text in ["/check", "🔄 Обновить СДО"]:
                         asyncio.create_task(handle_force_refresh_command(chat_id))
 
-                # 2. Кнопки меню (мгновенно из памяти, 0 сетевых запросов к МИРЭА)
+                # 2. Кнопки (мгновенно)
                 elif "callback_query" in update:
                     cb = update["callback_query"]
                     cb_id = cb["id"]
@@ -682,7 +651,6 @@ async def main():
         print("ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
         return
 
-    # Загружаем первоначальный кэш при старте
     try:
         await fetch_moodle_calendar_to_cache()
     except Exception as e:
@@ -693,7 +661,7 @@ async def main():
     except Exception as e:
         logger.warning(f"Команды меню: {e}")
 
-    logger.info("Бот запущен. Навигация по кнопкам работает на 100% из памяти без запросов к МИРЭА!")
+    logger.info("Бот запущен и готов к работе!")
     
     await asyncio.gather(
         background_monitoring_task(),
