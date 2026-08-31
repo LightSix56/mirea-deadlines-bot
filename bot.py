@@ -1,34 +1,24 @@
 ﻿import sys
 import os
 import json
-import socket
+import time
 import asyncio
 import logging
-import aiohttp
-from aiohttp import web
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+import httpx
 
-# Исправление сетевого стека для Windows
+# Настройка UTF-8 для консоли Windows
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.enums import ParseMode
-from aiogram.client.session.aiohttp import AiohttpSession
-
 from moodle_client import MoodleClient, DeadlineEvent, MSK_TZ
 
-# Абсолютный путь к папке проекта
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -44,25 +34,9 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CALENDAR_URL = os.getenv("CALENDAR_URL")
 MOODLE_TOKEN = os.getenv("MOODLE_TOKEN")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "2"))
-PORT = int(os.getenv("PORT", "8000"))
 
 STATE_FILE = os.path.join(BASE_DIR, "events_state.json")
-
-
-class IPv4Session(AiohttpSession):
-    """Сетевая сессия с чистым IPv4 и отключенным happy-eyeballs для стабильности на Windows"""
-    async def create_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            connector = aiohttp.TCPConnector(
-                family=socket.AF_INET,
-                happy_eyeballs_delay=None,
-                enable_cleanup_closed=True
-            )
-            self._session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=aiohttp.ClientTimeout(total=45, connect=15)
-            )
-        return self._session
+TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
 def load_events_state() -> Dict[str, Any]:
@@ -135,16 +109,38 @@ def format_time_diff(diff_seconds: int) -> str:
         return f"Сдвинут раньше на {time_str.strip()}"
 
 
-dp = Dispatcher()
+async def tg_send_message(chat_id: str, text: str, reply_markup: Optional[Dict] = None):
+    """Отправляет сообщение в Telegram через HTTPX"""
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(f"{TG_API_URL}/sendMessage", json=payload)
+        return resp.json()
 
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Показать дедлайны", callback_data="show_deadlines")],
-        [InlineKeyboardButton(text="🔄 Проверить СДО", callback_data="refresh_deadlines")]
-    ])
-    await message.answer(
+async def tg_answer_callback(callback_query_id: str, text: Optional[str] = None):
+    payload = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(f"{TG_API_URL}/answerCallbackQuery", json=payload)
+
+
+async def handle_start_command(chat_id: str):
+    kb = {
+        "inline_keyboard": [
+            [{"text": "📋 Показать дедлайны", "callback_data": "show_deadlines"}],
+            [{"text": "🔄 Проверить СДО", "callback_data": "refresh_deadlines"}]
+        ]
+    }
+    text = (
         "👋 *Привет! Я бот для отслеживания дедлайнов СДО РТУ МИРЭА.*\n\n"
         "Я непрерывно слежу за СДО 24/7:\n"
         "• 🔔 Присылаю уведомления, когда *открывается доступ к тесту* или работе\n"
@@ -153,53 +149,23 @@ async def cmd_start(message: types.Message):
         "• ⚠️ Напоминаю за *24 часа* и *3 часа* до сдачи\n\n"
         "Команды:\n"
         "• `/deadlines` — список всех актуальных работ\n"
-        "• `/check` — принудительно обновить список прямо сейчас",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb
+        "• `/check` — принудительно обновить список прямо сейчас"
     )
+    await tg_send_message(chat_id, text, reply_markup=kb)
 
 
-@dp.message(Command("deadlines"))
-async def cmd_deadlines(message: types.Message):
-    await send_deadlines_response(message.answer)
-
-
-@dp.message(Command("check"))
-async def cmd_check(message: types.Message):
-    status_msg = await message.answer("🔄 Проверяю дедлайны в СДО МИРЭА...")
-    client = get_client()
-    try:
-        events = await client.get_upcoming_deadlines()
-        await status_msg.delete()
-        await message.answer(build_deadlines_list_message(events), parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка при получении данных: {e}")
-
-
-@dp.callback_query(F.data == "show_deadlines")
-async def cb_show_deadlines(callback: types.CallbackQuery):
-    await callback.answer()
-    await send_deadlines_response(callback.message.answer)
-
-
-@dp.callback_query(F.data == "refresh_deadlines")
-async def cb_refresh_deadlines(callback: types.CallbackQuery):
-    await callback.answer("Обновляю список...")
-    await send_deadlines_response(callback.message.answer)
-
-
-async def send_deadlines_response(answer_func):
+async def handle_deadlines_command(chat_id: str):
     client = get_client()
     try:
         events = await client.get_upcoming_deadlines()
         msg_text = build_deadlines_list_message(events)
-        await answer_func(msg_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+        await tg_send_message(chat_id, msg_text)
     except Exception as e:
         logger.error(f"Ошибка получения дедлайнов: {e}")
-        await answer_func(f"❌ Не удалось получить дедлайны: {e}\n\nПроверьте `CALENDAR_URL` в `.env`.")
+        await tg_send_message(chat_id, f"❌ Не удалось получить дедлайны: {e}\n\nПроверьте `CALENDAR_URL` в `.env`.")
 
 
-async def background_monitoring_task(bot: Bot):
+async def background_monitoring_task():
     logger.info("Фоновый мониторинг дедлайнов и открытий тестов запущен...")
     
     while True:
@@ -234,7 +200,7 @@ async def background_monitoring_task(bot: Bot):
                     if hours_diff > 12:
                         title = "🔓 *Запланировано открытие теста / задания:*" if event.is_opening else "🆕 *В СДО МИРЭА добавлено новое задание:*"
                         text = f"{title}\n\n" + format_deadline_card(event)
-                        await bot.send_message(TELEGRAM_CHAT_ID, text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                        await tg_send_message(TELEGRAM_CHAT_ID, text)
 
                     state[event_key] = event_state
                     continue
@@ -256,7 +222,7 @@ async def background_monitoring_task(bot: Bot):
                         f"⏳ *Статус:* _{event.time_left_str}_\n"
                         f"🔗 [Перейти в СДО]({event.url})\n"
                     )
-                    await bot.send_message(TELEGRAM_CHAT_ID, text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                    await tg_send_message(TELEGRAM_CHAT_ID, text)
 
                     event_state["due_timestamp"] = event.due_timestamp
                     event_state["alerts_sent"] = ["discovered"]
@@ -272,7 +238,7 @@ async def background_monitoring_task(bot: Bot):
                                 f"⏰ *Открыто с:* `{event.formatted_date}`\n"
                                 f"🔗 [Начать выполнение]({event.url})\n"
                             )
-                            await bot.send_message(TELEGRAM_CHAT_ID, text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                            await tg_send_message(TELEGRAM_CHAT_ID, text)
                             event_state["opened_alert_sent"] = True
 
                 # 4. НАПОМИНАНИЯ О ДЕДЛАЙНЕ (24 ЧАСА И 3 ЧАСА)
@@ -282,12 +248,12 @@ async def background_monitoring_task(bot: Bot):
 
                     if 0 < hours_left <= 24 and "24h" not in alerts_sent:
                         text = f"⚠️ *Внимание! До дедлайна остались сутки:*\n\n" + format_deadline_card(event)
-                        await bot.send_message(TELEGRAM_CHAT_ID, text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                        await tg_send_message(TELEGRAM_CHAT_ID, text)
                         alerts_sent.append("24h")
 
                     if 0 < hours_left <= 3 and "3h" not in alerts_sent:
                         text = f"🚨 *Срочно! До окончания сдачи меньше 3 часов:*\n\n" + format_deadline_card(event)
-                        await bot.send_message(TELEGRAM_CHAT_ID, text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                        await tg_send_message(TELEGRAM_CHAT_ID, text)
                         alerts_sent.append("3h")
 
                     event_state["alerts_sent"] = alerts_sent
@@ -302,22 +268,60 @@ async def background_monitoring_task(bot: Bot):
         await asyncio.sleep(CHECK_INTERVAL * 60)
 
 
-async def start_healthcheck_server():
-    async def handle(request):
-        return web.Response(text="MIREA Deadlines Bot is running 24/7!")
+async def poll_telegram_updates():
+    """Надежный Long-Polling через HTTPX без сетевых таймаутов Windows"""
+    logger.info("Long polling Telegram запущен...")
+    offset = 0
 
-    app = web.Application()
-    app.router.add_get("/", handle)
-    app.router.add_get("/health", handle)
-    
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    try:
-        await site.start()
-        logger.info(f"Healthcheck сервер запущен на порту {PORT}")
-    except Exception as e:
-        logger.warning(f"Healthcheck сервер не запущен: {e}")
+    async with httpx.AsyncClient(timeout=35.0) as client:
+        while True:
+            try:
+                params = {"offset": offset, "timeout": 20}
+                resp = await client.get(f"{TG_API_URL}/getUpdates", params=params)
+                
+                if resp.status_code != 200:
+                    logger.warning(f"Telegram API status {resp.status_code}: {resp.text}")
+                    await asyncio.sleep(3)
+                    continue
+
+                data = resp.json()
+                if not data.get("ok"):
+                    await asyncio.sleep(2)
+                    continue
+
+                updates = data.get("result", [])
+                for update in updates:
+                    offset = update["update_id"] + 1
+
+                    # Обработка сообщений
+                    if "message" in update:
+                        msg = update["message"]
+                        chat_id = str(msg["chat"]["id"])
+                        text = (msg.get("text") or "").strip()
+
+                        if text == "/start":
+                            await handle_start_command(chat_id)
+                        elif text in ["/deadlines", "/check"]:
+                            await handle_deadlines_command(chat_id)
+
+                    # Обработка кликов по кнопкам
+                    elif "callback_query" in update:
+                        cb = update["callback_query"]
+                        cb_id = cb["id"]
+                        chat_id = str(cb["message"]["chat"]["id"])
+                        cb_data = cb.get("data")
+
+                        if cb_data in ["show_deadlines", "refresh_deadlines"]:
+                            await tg_answer_callback(cb_id, "Загружаю дедлайны...")
+                            await handle_deadlines_command(chat_id)
+                        else:
+                            await tg_answer_callback(cb_id)
+
+            except httpx.TimeoutException:
+                pass
+            except Exception as e:
+                logger.error(f"Ошибка в polling: {e}")
+                await asyncio.sleep(3)
 
 
 async def main():
@@ -325,19 +329,13 @@ async def main():
         print("ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
         return
 
-    await start_healthcheck_server()
-
-    session = IPv4Session()
-    bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
-    asyncio.create_task(background_monitoring_task(bot))
     logger.info("Бот успешно запущен и отслеживает дедлайны...")
-
-    while True:
-        try:
-            await dp.start_polling(bot, handle_signals=False)
-        except Exception as e:
-            logger.error(f"Сбой polling Telegram ({e}). Переподключение через 5 сек...")
-            await asyncio.sleep(5)
+    
+    # Запускаем фоновый мониторинг и long polling одновременно
+    await asyncio.gather(
+        background_monitoring_task(),
+        poll_telegram_updates()
+    )
 
 
 if __name__ == "__main__":

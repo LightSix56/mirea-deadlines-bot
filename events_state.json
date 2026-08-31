@@ -1,0 +1,592 @@
+{
+  "1322673@online-edu.mirea.ru": {
+    "name": "Практическое задание 1 - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1790246580,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319542@online-edu.mirea.ru": {
+    "name": "Практическая работа №1 - срок сдачи",
+    "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1790715600,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319384@online-edu.mirea.ru": {
+    "name": "Практическая работа №1 - срок сдачи",
+    "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1790801940,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326597@online-edu.mirea.ru": {
+    "name": "Практическое задание 1 - срок сдачи",
+    "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
+    "due_timestamp": 1790801940,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326599@online-edu.mirea.ru": {
+    "name": "Практическое задание 2 - срок сдачи",
+    "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
+    "due_timestamp": 1792529940,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321611@online-edu.mirea.ru": {
+    "name": "Практическое задание 1 - срок сдачи",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1792677240,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322679@online-edu.mirea.ru": {
+    "name": "Практическое задание 2 - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1792838880,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319746@online-edu.mirea.ru": {
+    "name": "Кейс 1 - срок сдачи",
+    "course": "Основы бизнес-аналитики_Зачет_1/1_[I.26-27]_194",
+    "due_timestamp": 1792965120,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319543@online-edu.mirea.ru": {
+    "name": "Практическая работа №2 - срок сдачи",
+    "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1793307600,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319389@online-edu.mirea.ru": {
+    "name": "Практическая работа №2 - срок сдачи",
+    "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1793393940,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322681@online-edu.mirea.ru": {
+    "name": "Задание №3 - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1793394000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322617@online-edu.mirea.ru": {
+    "name": "Контрольная работа 1 - срок сдачи",
+    "course": "Рынки информационно-коммуникационных технологий_Зачет_1/1_[I.26-27]_200",
+    "due_timestamp": 1793440440,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326591@online-edu.mirea.ru": {
+    "name": "Контрольная работа 1 - срок сдачи",
+    "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
+    "due_timestamp": 1793480340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1320025@online-edu.mirea.ru": {
+    "name": "Практическое задание 1 - срок сдачи",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1793501700,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319544@online-edu.mirea.ru": {
+    "name": "Тестирование открывается",
+    "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1794312420,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326701@online-edu.mirea.ru": {
+    "name": "Аудиторная контрольная работа 1 - срок сдачи",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1794506460,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319390@online-edu.mirea.ru": {
+    "name": "Тестирование открывается",
+    "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1794810600,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326594@online-edu.mirea.ru": {
+    "name": "Практическое задание 3 - срок сдачи",
+    "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
+    "due_timestamp": 1795208340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321462@online-edu.mirea.ru": {
+    "name": "Тест открывается",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1795337220,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321609@online-edu.mirea.ru": {
+    "name": "Практическое задание 1 - срок сдачи",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1795355520,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321613@online-edu.mirea.ru": {
+    "name": "Тестирование 1 открывается",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1795355760,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319747@online-edu.mirea.ru": {
+    "name": "Кейс 2 - срок сдачи",
+    "course": "Основы бизнес-аналитики_Зачет_1/1_[I.26-27]_194",
+    "due_timestamp": 1795643580,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322699@online-edu.mirea.ru": {
+    "name": "Самостоятельная работа (СР-1) - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1795691220,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319546@online-edu.mirea.ru": {
+    "name": "Практическая работа №3 - срок сдачи",
+    "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1795986000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322618@online-edu.mirea.ru": {
+    "name": "Контрольная работа 2 - срок сдачи",
+    "course": "Рынки информационно-коммуникационных технологий_Зачет_1/1_[I.26-27]_200",
+    "due_timestamp": 1796032500,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319388@online-edu.mirea.ru": {
+    "name": "Практическая работа №3 - срок сдачи",
+    "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1796072340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326595@online-edu.mirea.ru": {
+    "name": "Практическое задание 4 - срок сдачи",
+    "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
+    "due_timestamp": 1796072340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322696@online-edu.mirea.ru": {
+    "name": "Задание №4 - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1796072400,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319460@online-edu.mirea.ru": {
+    "name": "Тест открывается",
+    "course": "Анализ и диагностика финансово-хозяйственной деятельности предприятия_Экзамен_1/1_[I.26-27]_199",
+    "due_timestamp": 1796072460,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322626@online-edu.mirea.ru": {
+    "name": "Тестирование открывается",
+    "course": "Рынки информационно-коммуникационных технологий_Зачет_1/1_[I.26-27]_200",
+    "due_timestamp": 1796119080,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326700@online-edu.mirea.ru": {
+    "name": "Аудиторная контрольная работа 2 - срок сдачи",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1796752680,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319547@online-edu.mirea.ru": {
+    "name": "Практическая работа №4 - срок сдачи",
+    "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1796850000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319461@online-edu.mirea.ru": {
+    "name": "Тест закрывается",
+    "course": "Анализ и диагностика финансово-хозяйственной деятельности предприятия_Экзамен_1/1_[I.26-27]_199",
+    "due_timestamp": 1796936340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319675@online-edu.mirea.ru": {
+    "name": "Тестирование 2 открывается",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797248340,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319677@online-edu.mirea.ru": {
+    "name": "Тестирование 1 открывается",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797248640,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322627@online-edu.mirea.ru": {
+    "name": "Тестирование закрывается",
+    "course": "Рынки информационно-коммуникационных технологий_Зачет_1/1_[I.26-27]_200",
+    "due_timestamp": 1797328680,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319710@online-edu.mirea.ru": {
+    "name": "Тестирование 1 открывается",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797340860,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322612@online-edu.mirea.ru": {
+    "name": "Контрольная работа 3 - срок сдачи",
+    "course": "Рынки информационно-коммуникационных технологий_Зачет_1/1_[I.26-27]_200",
+    "due_timestamp": 1797714000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319548@online-edu.mirea.ru": {
+    "name": "Кейс - срок сдачи",
+    "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1797796800,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326596@online-edu.mirea.ru": {
+    "name": "Контрольная работа 2 - срок сдачи",
+    "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
+    "due_timestamp": 1797800340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1322717@online-edu.mirea.ru": {
+    "name": "Контрольное задание - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1797800400,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321610@online-edu.mirea.ru": {
+    "name": "Практическое задание 2 - срок сдачи",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797947580,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321612@online-edu.mirea.ru": {
+    "name": "Практическое задание 2 - срок сдачи",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1797947700,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321614@online-edu.mirea.ru": {
+    "name": "Тестирование 1 закрывается",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1797947760,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321615@online-edu.mirea.ru": {
+    "name": "Тестирование 2 открывается",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1797947760,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321619@online-edu.mirea.ru": {
+    "name": "Практическое задание 2 - срок сдачи",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797948000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321620@online-edu.mirea.ru": {
+    "name": "Тестирование 2 открывается",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797948060,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319748@online-edu.mirea.ru": {
+    "name": "Контрольная работа - срок сдачи",
+    "course": "Основы бизнес-аналитики_Зачет_1/1_[I.26-27]_194",
+    "due_timestamp": 1797973200,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326699@online-edu.mirea.ru": {
+    "name": "Аудиторная контрольная работа 3 - срок сдачи",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1798059600,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321463@online-edu.mirea.ru": {
+    "name": "Тест закрывается",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1798102080,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319676@online-edu.mirea.ru": {
+    "name": "Тестирование 2 закрывается",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1798112340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319678@online-edu.mirea.ru": {
+    "name": "Тестирование 1 закрывается",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1798112640,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319711@online-edu.mirea.ru": {
+    "name": "Тестирование 1 закрывается",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1798204860,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1318539@online-edu.mirea.ru": {
+    "name": "Итоговый тест открывается",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1798210500,
+    "is_opening": true,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319443@online-edu.mirea.ru": {
+    "name": "Итоговый тест закрывается",
+    "course": "Теория организации и организационное проектирование_Зачет_1/1_[I.26-27]_193",
+    "due_timestamp": 1798210800,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321616@online-edu.mirea.ru": {
+    "name": "Тестирование 2 закрывается",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1798379760,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1321621@online-edu.mirea.ru": {
+    "name": "Тестирование 2 закрывается",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1798380060,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319391@online-edu.mirea.ru": {
+    "name": "Практическая работа №4 - срок сдачи",
+    "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1798664340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1319392@online-edu.mirea.ru": {
+    "name": "Практическая работа №5 - срок сдачи",
+    "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1798664340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  }
+}
