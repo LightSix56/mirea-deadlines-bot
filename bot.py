@@ -600,6 +600,8 @@ async def background_monitoring_task():
             now = datetime.now(MSK_TZ)
             now_ts = int(now.timestamp())
 
+            is_initial_run = (len(events_dict) == 0)
+
             for event in events:
                 event_key = str(event.event_id)
                 event_state = events_dict.get(event_key)
@@ -612,23 +614,24 @@ async def background_monitoring_task():
                         "is_opening": event.is_opening,
                         "is_completed": False,
                         "completed_at": None,
-                        "is_new_unseen": True,
+                        "is_new_unseen": False if is_initial_run else True,
                         "opened_alert_sent": False,
                         "alerts_sent": ["discovered"]
                     }
 
-                    hours_diff = (event.due_timestamp - now_ts) / 3600.0
-                    if hours_diff > 12:
-                        title = "🔓 *Запланировано открытие теста / задания:*" if event.is_opening else "🆕 *В СДО МИРЭА добавлено новое задание:*"
-                        card = format_deadline_card(event)
-                        kb = {"inline_keyboard": [[{"text": "✅ Отметить сданным", "callback_data": f"done_{event.event_id}"}]]}
-                        await tg_api("sendMessage", {
-                            "chat_id": TELEGRAM_CHAT_ID,
-                            "text": f"{title}\n\n{card}",
-                            "parse_mode": "Markdown",
-                            "disable_web_page_preview": True,
-                            "reply_markup": kb
-                        })
+                    if not is_initial_run:
+                        hours_diff = (event.due_timestamp - now_ts) / 3600.0
+                        if hours_diff > 12:
+                            title = "🔓 *Запланировано открытие теста / задания:*" if event.is_opening else "🆕 *В СДО МИРЭА добавлено новое задание:*"
+                            card = format_deadline_card(event)
+                            kb = {"inline_keyboard": [[{"text": "✅ Отметить сданным", "callback_data": f"done_{event.event_id}"}]]}
+                            await tg_api("sendMessage", {
+                                "chat_id": TELEGRAM_CHAT_ID,
+                                "text": f"{title}\n\n{card}",
+                                "parse_mode": "Markdown",
+                                "disable_web_page_preview": True,
+                                "reply_markup": kb
+                            })
 
                     events_dict[event_key] = event_state
                     continue
@@ -738,22 +741,23 @@ async def poll_telegram_updates():
 
     while True:
         try:
-            async with httpx.AsyncClient(timeout=25.0) as poll_client:
-                params = {"offset": offset, "timeout": 15}
-                resp = await poll_client.get(f"{TG_API_URL}/getUpdates", params=params)
-                
-                if resp.status_code != 200:
-                    await asyncio.sleep(1)
-                    continue
+            async with httpx.AsyncClient(timeout=30.0) as poll_client:
+                while True:
+                    params = {"offset": offset, "timeout": 15}
+                    resp = await poll_client.get(f"{TG_API_URL}/getUpdates", params=params)
+                    
+                    if resp.status_code != 200:
+                        await asyncio.sleep(1)
+                        continue
 
-                data = resp.json()
-                if not data.get("ok"):
-                    await asyncio.sleep(1)
-                    continue
+                    data = resp.json()
+                    if not data.get("ok"):
+                        await asyncio.sleep(1)
+                        continue
 
-                updates = data.get("result", [])
-                for update in updates:
-                    offset = update["update_id"] + 1
+                    updates = data.get("result", [])
+                    for update in updates:
+                        offset = update["update_id"] + 1
 
                     if "message" in update:
                         msg = update["message"]
