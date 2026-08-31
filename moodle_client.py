@@ -15,6 +15,7 @@ class DeadlineEvent:
     due_timestamp: int
     due_datetime: datetime
     url: str
+    event_view_url: str
     description: str = ""
     is_opening: bool = False
 
@@ -24,7 +25,6 @@ class DeadlineEvent:
 
     @property
     def clean_name(self) -> str:
-        """Очищенное название задания без технических суффиксов"""
         clean = self.name
         for suffix in [" - срок сдачи", " срок сдачи", " is due", " закрывается", " открывается", " opens"]:
             clean = clean.replace(suffix, "")
@@ -91,9 +91,15 @@ def parse_ical_content(ical_text: str) -> List[DeadlineEvent]:
         uid = fields.get("UID", str(int(time.time())))
         event_num_match = re.match(r'^(\d+)', uid)
         event_num = event_num_match.group(1) if event_num_match else ""
-        default_url = f"https://online-edu.mirea.ru/calendar/view.php?view=event&id={event_num}" if event_num else "https://online-edu.mirea.ru"
-        url = fields.get("URL") or default_url
+        event_view_url = f"https://online-edu.mirea.ru/calendar/view.php?view=event&id={event_num}" if event_num else "https://online-edu.mirea.ru"
         
+        # Извлекаем прямую ссылку на модуль (задание/тест) из описания
+        direct_mod_match = re.search(r'(https://online-edu\.mirea\.ru/mod/\w+/view\.php\?id=\d+)', unfolded)
+        if direct_mod_match:
+            task_url = direct_mod_match.group(1)
+        else:
+            task_url = fields.get("URL") or event_view_url
+
         categories = fields.get("CATEGORIES", "")
         description = fields.get("DESCRIPTION", "").replace(r'\,', ',').replace(r'\n', '\n')
         
@@ -104,8 +110,6 @@ def parse_ical_content(ical_text: str) -> List[DeadlineEvent]:
             continue
 
         course_name = categories if categories else "СДО МИРЭА"
-        
-        # Определяем, является ли это событием открытия (теста/задания)
         summary_lower = summary.lower()
         is_opening = any(w in summary_lower for w in ["открывается", "opens", "доступен с", "начало"])
 
@@ -115,7 +119,8 @@ def parse_ical_content(ical_text: str) -> List[DeadlineEvent]:
             course_name=course_name,
             due_timestamp=int(dt.timestamp()),
             due_datetime=dt,
-            url=url,
+            url=task_url,
+            event_view_url=event_view_url,
             description=description,
             is_opening=is_opening
         ))
@@ -130,54 +135,16 @@ class MoodleClient:
         self.token = token
         self.calendar_url = calendar_url
 
-    async def get_upcoming_deadlines(self, limit: int = 50) -> List[DeadlineEvent]:
+    async def get_upcoming_deadlines(self, limit: int = 100) -> List[DeadlineEvent]:
         if self.calendar_url:
             async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
                 resp = await client.get(self.calendar_url)
                 resp.raise_for_status()
                 all_events = parse_ical_content(resp.text)
                 
-                # Оставляем события, которые завершаются не ранее чем 2 часа назад
+                # Оставляем события, дедлайн которых не прошел более 2 часов назад
                 current_ts = int(time.time()) - 7200
                 upcoming = [e for e in all_events if e.due_timestamp >= current_ts]
                 return upcoming[:limit]
 
-        if self.token:
-            endpoint = f"{self.base_url}/webservice/rest/server.php"
-            current_ts = int(time.time())
-            params = {
-                "wstoken": self.token,
-                "wsfunction": "core_calendar_get_action_events_by_timesort",
-                "moodlewsrestformat": "json",
-                "timesortfrom": current_ts,
-                "limitnum": limit
-            }
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(endpoint, params=params)
-                resp.raise_for_status()
-                data = resp.json()
-                
-                events_raw = data.get("events", [])
-                deadlines: List[DeadlineEvent] = []
-                for item in events_raw:
-                    ts = item.get("timestart") or item.get("timesort") or 0
-                    if ts <= 0:
-                        continue
-                    dt = datetime.fromtimestamp(ts, tz=MSK_TZ)
-                    course_info = item.get("course") or {}
-                    course_name = course_info.get("fullname") or "Без курса"
-                    name = item.get("name", "Без названия")
-                    is_opening = "открывается" in name.lower()
-                    deadlines.append(DeadlineEvent(
-                        event_id=str(item.get("id", 0)),
-                        name=name,
-                        course_name=course_name,
-                        due_timestamp=ts,
-                        due_datetime=dt,
-                        url=item.get("url", self.base_url),
-                        is_opening=is_opening
-                    ))
-                deadlines.sort(key=lambda x: x.due_timestamp)
-                return deadlines
-
-        raise ValueError("Не задан ни CALENDAR_URL, ни MOODLE_TOKEN в файле .env")
+        raise ValueError("Не задан CALENDAR_URL в файле .env")
