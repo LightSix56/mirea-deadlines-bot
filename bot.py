@@ -354,13 +354,20 @@ async def handle_inactive_menu(chat_id: str, message_id: Optional[int] = None, s
         future_tasks = [e for e in all_events if (not e.is_opening) and (e.due_timestamp - now_ts > limit_21)]
 
         sept_oct_tasks = []
-        nov_dec_tasks = []
+        nov_tasks = []
+        dec_1_tasks = []
+        dec_2_tasks = []
+
         for ev in future_tasks:
             dt = datetime.fromtimestamp(ev.due_timestamp, tz=MSK_TZ)
             if dt.month in [9, 10]:
                 sept_oct_tasks.append(ev)
-            else:
-                nov_dec_tasks.append(ev)
+            elif dt.month == 11:
+                nov_tasks.append(ev)
+            elif dt.month == 12 and dt.day <= 20:
+                dec_1_tasks.append(ev)
+            elif dt.month == 12 and dt.day > 20:
+                dec_2_tasks.append(ev)
 
         total_inactive = len(unopened_tests) + len(future_tasks)
 
@@ -373,7 +380,7 @@ async def handle_inactive_menu(chat_id: str, message_id: Optional[int] = None, s
                 cards.append(
                     f"{idx}. 🔒 *{clean_name}*\n"
                     f"📚 *Предмет:* {clean_course}\n"
-                    f"⏰ *Открытие доступа:* `{ev.formatted_date}`\n"
+                    f"⏰ *Открытие:* `{ev.formatted_date}`\n"
                     f"⏳ *Статус:* _{ev.time_left_str}_\n"
                     f"🔗 {event_link}\n"
                 )
@@ -389,13 +396,12 @@ async def handle_inactive_menu(chat_id: str, message_id: Optional[int] = None, s
                 clean_name = clean_text_for_markdown(ev.clean_name)
                 clean_course = clean_text_for_markdown(ev.course_name)
                 task_link = f"[📝 К заданию]({ev.url})"
-                event_link = f"[📚 В СДО]({ev.event_view_url})"
                 cards.append(
                     f"{idx}. 📌 *{clean_name}*\n"
                     f"📚 *Предмет:* {clean_course}\n"
                     f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
                     f"⏳ *Статус:* _{ev.time_left_str}_\n"
-                    f"🔗 {task_link} • {event_link}\n"
+                    f"🔗 {task_link}\n"
                 )
             text_body = (
                 f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
@@ -403,32 +409,79 @@ async def handle_inactive_menu(chat_id: str, message_id: Optional[int] = None, s
                 "\n────────────────────\n".join(cards)
             )
 
-        elif section == "nov_dec":
+        elif section == "nov":
             cards = []
-            for idx, ev in enumerate(nov_dec_tasks, 1):
+            for idx, ev in enumerate(nov_tasks, 1):
                 clean_name = clean_text_for_markdown(ev.clean_name)
                 clean_course = clean_text_for_markdown(ev.course_name)
                 task_link = f"[📝 К заданию]({ev.url})"
                 cards.append(
-                    f"{idx}. 📌 *{clean_name}* ({clean_course})\n"
-                    f"⏰ *Срок:* `{ev.formatted_date}` ({ev.time_left_str}) • {task_link}"
+                    f"{idx}. 📌 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 {task_link}\n"
                 )
             text_body = (
                 f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
-                f"❄️ *ЗАДАНИЯ НА НОЯБРЬ И ДЕКАБРЬ* ({len(nov_dec_tasks)}):\n\n" +
-                "\n\n".join(cards)
+                f"🍁 *ЗАДАНИЯ НА НОЯБРЬ* ({len(nov_tasks)}):\n\n" +
+                "\n────────────────────\n".join(cards)
             )
 
-        btn_tests = "🔘 ⏳ Тесты (12)" if section == "tests" else "⏳ Тесты (12)"
-        btn_sept_oct = "🔘 🍂 Сент-Окт (14)" if section == "sept_oct" else "🍂 Сент-Окт (14)"
-        btn_nov_dec = "🔘 ❄️ Нояб-Дек (33)" if section == "nov_dec" else "❄️ Нояб-Дек (33)"
+        elif section == "dec_1":
+            cards = []
+            for idx, ev in enumerate(dec_1_tasks, 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                task_link = f"[📝 К заданию]({ev.url})"
+                cards.append(
+                    f"{idx}. 📌 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 {task_link}\n"
+                )
+            text_body = (
+                f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
+                f"❄️ *ЗАДАНИЯ НА ДЕКАБРЬ (1–20 дек)* ({len(dec_1_tasks)}):\n\n" +
+                "\n────────────────────\n".join(cards)
+            )
+
+        elif section == "dec_2":
+            cards = []
+            for idx, ev in enumerate(dec_2_tasks, 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                task_link = f"[📝 К заданию]({ev.url})"
+                cards.append(
+                    f"{idx}. 📌 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 {task_link}\n"
+                )
+            text_body = (
+                f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
+                f"❄️ *ЗАДАНИЯ НА ДЕКАБРЬ (21–31 дек)* ({len(dec_2_tasks)}):\n\n" +
+                "\n────────────────────\n".join(cards)
+            )
+
+        btn_tests = "🔘 ⏳ Тесты" if section == "tests" else "⏳ Тесты"
+        btn_sept_oct = "🔘 🍂 Сент-Окт" if section == "sept_oct" else "🍂 Сент-Окт"
+        btn_nov = "🔘 🍁 Ноябрь" if section == "nov" else "🍁 Ноябрь"
+        btn_dec_1 = "🔘 ❄️ Дек 1-20" if section == "dec_1" else "❄️ Дек 1-20"
+        btn_dec_2 = "🔘 ❄️ Дек 21-31" if section == "dec_2" else "❄️ Дек 21-31"
 
         kb = {
             "inline_keyboard": [
                 [
                     {"text": btn_tests, "callback_data": "inactive_tests"},
                     {"text": btn_sept_oct, "callback_data": "inactive_sept_oct"},
-                    {"text": btn_nov_dec, "callback_data": "inactive_nov_dec"}
+                    {"text": btn_nov, "callback_data": "inactive_nov"}
+                ],
+                [
+                    {"text": btn_dec_1, "callback_data": "inactive_dec_1"},
+                    {"text": btn_dec_2, "callback_data": "inactive_dec_2"}
                 ],
                 [
                     {"text": "🟢 Открытые (до 21 дн.)", "callback_data": "show_deadlines"},
@@ -734,8 +787,12 @@ async def poll_telegram_updates():
                             asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="tests"))
                         elif cb_data == "inactive_sept_oct":
                             asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="sept_oct"))
-                        elif cb_data == "inactive_nov_dec":
-                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="nov_dec"))
+                        elif cb_data == "inactive_nov":
+                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="nov"))
+                        elif cb_data == "inactive_dec_1":
+                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="dec_1"))
+                        elif cb_data == "inactive_dec_2":
+                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="dec_2"))
                         elif cb_data == "show_menu":
                             asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
                         elif cb_data == "refresh_deadlines":
