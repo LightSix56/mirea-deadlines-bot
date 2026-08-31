@@ -46,14 +46,12 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "2"))
 STATE_FILE = os.path.join(BASE_DIR, "events_state.json")
 TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-THREE_WEEKS_SECONDS = 21 * 24 * 3600
-
-# Раздельные клиенты для параллельной работы без блокировок
+# Выделенные клиенты
 API_CLIENT: Optional[httpx.AsyncClient] = None
 POLL_CLIENT: Optional[httpx.AsyncClient] = None
 
+# Кэш дедлайнов в оперативной памяти (кнопки читают ТОЛЬКО его, 0 запросов к сайту МИРЭА)
 CACHED_EVENTS: List[DeadlineEvent] = []
-CACHE_LOCK = asyncio.Lock()
 
 
 def load_events_state() -> Dict[str, Any]:
@@ -81,17 +79,18 @@ def get_moodle_client() -> MoodleClient:
     return MoodleClient(calendar_url=CALENDAR_URL, token=MOODLE_TOKEN)
 
 
-async def update_events_cache() -> List[DeadlineEvent]:
-    """Фоновое обновление кэша событий"""
+async def fetch_moodle_calendar_to_cache() -> List[DeadlineEvent]:
+    """Единственная функция, делающая сетевой запрос к СДО МИРЭА"""
     global CACHED_EVENTS
+    logger.info("--> Запрос к календарю СДО МИРЭА...")
     client = get_moodle_client()
     try:
         events = await client.get_upcoming_deadlines(limit=100)
-        async with CACHE_LOCK:
-            CACHED_EVENTS = events
+        CACHED_EVENTS = events
+        logger.info(f"<-- Успешно получено {len(events)} событий из СДО МИРЭА")
         return events
     except Exception as e:
-        logger.error(f"Ошибка загрузки СДО в кэш: {e}")
+        logger.error(f"Ошибка запроса к СДО МИРЭА: {e}")
         return CACHED_EVENTS
 
 
@@ -129,15 +128,14 @@ def format_time_diff(diff_seconds: int) -> str:
 
 
 async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
-    """Мгновенный запрос к Telegram API через выделенный постоянный сокет"""
     global API_CLIENT
     if API_CLIENT is None or API_CLIENT.is_closed:
-        API_CLIENT = httpx.AsyncClient(timeout=15.0, http2=False)
+        API_CLIENT = httpx.AsyncClient(timeout=15.0)
     try:
         resp = await API_CLIENT.post(f"{TG_API_URL}/{method}", json=payload or {})
         return resp.json()
     except Exception as e:
-        logger.error(f"Ошибка TG API ({method}): {e}")
+        logger.error(f"Ошибка Telegram API ({method}): {e}")
         return {}
 
 
@@ -146,12 +144,13 @@ async def set_bot_menu_commands():
         {"command": "deadlines", "description": "📋 Доступные дедлайны (до 3 недель)"},
         {"command": "completed", "description": "✅ Сданные / закрытые работы"},
         {"command": "menu", "description": "📱 Главное меню"},
-        {"command": "check", "description": "🔄 Обновить данные из СДО"}
+        {"command": "check", "description": "🔄 Принудительно обновить СДО"}
     ]
     await tg_api("setMyCommands", {"commands": commands})
 
 
 async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
+    """Показывает главное меню (0 запросов к МИРЭА)"""
     kb = {
         "inline_keyboard": [
             [{"text": "📋 Ближайшие дедлайны (до 3 нед.)", "callback_data": "show_deadlines"}],
@@ -185,13 +184,11 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
         })
 
 
-async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_id: Optional[int] = None, force_refresh: bool = False):
+async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_id: Optional[int] = None):
+    """Показывает дедлайны ТОЛЬКО из локальной памяти (0 запросов к МИРЭА)"""
+    global CACHED_EVENTS
     try:
-        if force_refresh or not CACHED_EVENTS:
-            all_events = await update_events_cache()
-        else:
-            all_events = CACHED_EVENTS
-
+        all_events = CACHED_EVENTS
         state_data = load_events_state()
         events_dict = state_data.get("events", {})
 
@@ -204,6 +201,7 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
         future_nearest_event: Optional[DeadlineEvent] = None
 
         for event in all_events:
+            # Скрываем не открывшиеся тесты
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
@@ -335,13 +333,10 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
 
     except Exception as e:
         logger.error(f"Ошибка в handle_deadlines: {e}", exc_info=True)
-        await tg_api("sendMessage", {
-            "chat_id": chat_id,
-            "text": f"❌ Не удалось получить дедлайны: {e}\n\nПроверьте `CALENDAR_URL` в `.env`."
-        })
 
 
 async def handle_completed_command(chat_id: str, message_id: Optional[int] = None):
+    """Показывает сданные работы из локальной базы (0 запросов к МИРЭА)"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -417,6 +412,7 @@ async def handle_completed_command(chat_id: str, message_id: Optional[int] = Non
 
 
 async def handle_mark_done(chat_id: str, message_id: Optional[int], event_id: str):
+    """Помечает работу сданной в локальной памяти (0 запросов к МИРЭА)"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -439,6 +435,7 @@ async def handle_mark_done(chat_id: str, message_id: Optional[int], event_id: st
 
 
 async def handle_mark_undone(chat_id: str, message_id: Optional[int], event_id: str):
+    """Возвращает работу из сданных в локальной памяти (0 запросов к МИРЭА)"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -451,6 +448,12 @@ async def handle_mark_undone(chat_id: str, message_id: Optional[int], event_id: 
     await handle_completed_command(chat_id, message_id=message_id)
 
 
+async def handle_force_refresh_command(chat_id: str, message_id: Optional[int] = None):
+    """Принудительное обновление: опрашивает МИРЭА и показывает свежие данные"""
+    await fetch_moodle_calendar_to_cache()
+    await handle_deadlines_command(chat_id, message_id=message_id)
+
+
 async def background_monitoring_task():
     logger.info("Фоновый мониторинг дедлайнов и открытий тестов запущен...")
     
@@ -461,7 +464,7 @@ async def background_monitoring_task():
                 await asyncio.sleep(CHECK_INTERVAL * 60)
                 continue
 
-            events = await update_events_cache()
+            events = await fetch_moodle_calendar_to_cache()
             state_data = load_events_state()
             events_dict = state_data.get("events", {})
 
@@ -622,7 +625,7 @@ async def poll_telegram_updates():
             for update in updates:
                 offset = update["update_id"] + 1
 
-                # 1. Текстовые сообщения
+                # 1. Текстовые команды (чисто локальная обработка без ожидания сайта МИРЭА)
                 if "message" in update:
                     msg = update["message"]
                     chat_id = str(msg["chat"]["id"])
@@ -637,9 +640,9 @@ async def poll_telegram_updates():
                     elif text in ["/completed", "/completed_deadlines", "✅ Сданные работы"]:
                         asyncio.create_task(handle_completed_command(chat_id))
                     elif text in ["/check", "🔄 Обновить СДО"]:
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, force_refresh=True))
+                        asyncio.create_task(handle_force_refresh_command(chat_id))
 
-                # 2. Inline кнопки (моментальный ответ и обновление на месте)
+                # 2. Кнопки меню (мгновенно из памяти, 0 сетевых запросов к МИРЭА)
                 elif "callback_query" in update:
                     cb = update["callback_query"]
                     cb_id = cb["id"]
@@ -648,7 +651,6 @@ async def poll_telegram_updates():
                     message_id = msg.get("message_id")
                     cb_data = cb.get("data", "")
 
-                    # Мгновенно гасим спиннер кнопки (0.01 сек)
                     asyncio.create_task(tg_api("answerCallbackQuery", {"callback_query_id": cb_id}))
 
                     if cb_data == "show_deadlines":
@@ -658,7 +660,7 @@ async def poll_telegram_updates():
                     elif cb_data == "show_menu":
                         asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
                     elif cb_data == "refresh_deadlines":
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, message_id=message_id, force_refresh=True))
+                        asyncio.create_task(handle_force_refresh_command(chat_id, message_id=message_id))
                     elif cb_data == "show_completed":
                         asyncio.create_task(handle_completed_command(chat_id, message_id=message_id))
                     elif cb_data.startswith("done_"):
@@ -680,17 +682,18 @@ async def main():
         print("ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
         return
 
+    # Загружаем первоначальный кэш при старте
     try:
-        await update_events_cache()
+        await fetch_moodle_calendar_to_cache()
     except Exception as e:
-        logger.warning(f"Кэш при старте: {e}")
+        logger.warning(f"Первоначальная загрузка кэша: {e}")
 
     try:
         await set_bot_menu_commands()
     except Exception as e:
         logger.warning(f"Команды меню: {e}")
 
-    logger.info("Бот готов к мгновенной работе...")
+    logger.info("Бот запущен. Навигация по кнопкам работает на 100% из памяти без запросов к МИРЭА!")
     
     await asyncio.gather(
         background_monitoring_task(),
