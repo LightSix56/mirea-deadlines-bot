@@ -237,15 +237,28 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
         three_weeks_seconds = 21 * 24 * 3600
         month_seconds = 31 * 24 * 3600
 
-        available_events = []
+async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
+    """Показывает только ОТКРЫТЫЕ дедлайны со сроком сдачи до 21 дня (3 недели)"""
+    global CACHED_EVENTS
+    try:
+        if not CACHED_EVENTS:
+            await fetch_moodle_calendar_to_cache()
+
+        all_events = CACHED_EVENTS
+        state_data = load_events_state()
+        events_dict = state_data.get("events", {})
+
+        now = datetime.now(MSK_TZ)
+        now_ts = int(now.timestamp())
+        limit_seconds = 21 * 24 * 3600
+
+        target_events = []
         for event in all_events:
-            # Скрываем не открывшиеся тесты (они в Неактивных)
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
             event_key = str(event.event_id)
             ev_state = events_dict.get(event_key, {})
-            
             if ev_state.get("is_completed", False):
                 continue
 
@@ -253,20 +266,17 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
             if time_diff < -7200:
                 continue
 
-            available_events.append(event)
-
-        target_events = [e for e in available_events if (e.due_timestamp - now_ts) <= three_weeks_seconds]
-        is_month_extended = False
+            if time_diff <= limit_seconds:
+                target_events.append(event)
 
         if not target_events:
-            target_events = [e for e in available_events if (e.due_timestamp - now_ts) <= month_seconds]
-            is_month_extended = True
-
-        if not target_events:
-            text = "🎉 *Горящих открытых дедлайнов нет.* Все доступные работы запланированы позже."
+            text = (
+                "🎉 *Горящих дедлайнов на ближайшие 3 недели нет.*\n\n"
+                "Все задания и тесты семестра со сроком сдачи более 21 дня находятся в разделе **«🔒 Неактивные дедлайны»**."
+            )
             kb = {
                 "inline_keyboard": [
-                    [{"text": "🔒 Неактивные дедлайны", "callback_data": "show_inactive"}],
+                    [{"text": "🔒 Неактивные дедлайны (> 21 дн.)", "callback_data": "inactive_menu"}],
                     [{"text": "✅ Сданные работы", "callback_data": "show_completed"}],
                     [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
                 ]
@@ -299,11 +309,7 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
             msg_parts.append("\n────────────────────\n".join(cards))
 
         if regular_events:
-            if is_month_extended:
-                header_title = f"🟢 *Открытые дедлайны (на ближайший месяц)*" if not new_events else f"🟢 *Остальные открытые дедлайны*"
-            else:
-                header_title = f"🟢 *Открытые дедлайны (до 3 недель)*" if not new_events else f"🟢 *Остальные дедлайны*"
-            
+            header_title = f"🟢 *Открытые дедлайны (до 3 недель)*" if not new_events else f"🟢 *Остальные дедлайны (до 3 недель)*"
             msg_parts.append(f"{header_title} — {len(regular_events)}:")
             cards = []
             for ev in regular_events:
@@ -322,7 +328,7 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
             inline_keyboard.append(row)
 
         menu_row = [
-            {"text": "🔒 Неактивные", "callback_data": "show_inactive"},
+            {"text": "🔒 Неактивные (> 21 дн.)", "callback_data": "inactive_menu"},
             {"text": "✅ Сданные", "callback_data": "show_completed"},
             {"text": "📱 Меню", "callback_data": "show_menu"}
         ]
@@ -343,8 +349,14 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
         logger.error(f"Ошибка в handle_deadlines: {e}", exc_info=True)
 
 
-async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает ВСЕ тесты и работы, которые еще НЕ ОТКРЫЛИСЬ"""
+async def handle_inactive_menu(chat_id: str, message_id: Optional[int] = None, section: str = "tests"):
+    """
+    Показывает ВСЕ дедлайны со сроком сдачи > 21 дня, а также неоткрывшиеся тесты:
+    Разбито на вкладки:
+    - tests: Неоткрывшиеся тесты (12)
+    - sept_oct: Сентябрь & Октябрь (> 21 дня) (14)
+    - nov_dec: Ноябрь & Декабрь (> 21 дня) (33)
+    """
     global CACHED_EVENTS
     try:
         if not CACHED_EVENTS:
@@ -353,49 +365,98 @@ async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None
         all_events = CACHED_EVENTS
         now = datetime.now(MSK_TZ)
         now_ts = int(now.timestamp())
+        limit_21 = 21 * 86400
 
-        # Собираем ВСЕ события, которые откроются в будущем (is_opening == True и due_timestamp > now_ts)
-        unopened_events = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
+        unopened_tests = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
+        future_tasks = [e for e in all_events if (not e.is_opening) and (e.due_timestamp - now_ts > limit_21)]
 
-        if not unopened_events:
-            text = "🔒 *Все запланированные тесты и задания уже открыты!*"
-            kb = {
-                "inline_keyboard": [
-                    [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
-                    [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
-                ]
-            }
-            await send_or_edit_message(chat_id, message_id, text, kb)
-            return
+        sept_oct_tasks = []
+        nov_dec_tasks = []
+        for ev in future_tasks:
+            dt = datetime.fromtimestamp(ev.due_timestamp, tz=MSK_TZ)
+            if dt.month in [9, 10]:
+                sept_oct_tasks.append(ev)
+            else:
+                nov_dec_tasks.append(ev)
 
-        msg_parts = [f"🔒 *Тесты и задания, которые еще НЕ открылись* ({len(unopened_events)}):\n"]
-        cards = []
-        for idx, ev in enumerate(unopened_events, 1):
-            clean_name = clean_text_for_markdown(ev.clean_name)
-            clean_course = clean_text_for_markdown(ev.course_name)
-            event_link = f"[📚 Страница в СДО]({ev.event_view_url})"
-            cards.append(
-                f"{idx}. 🔒 *{clean_name}*\n"
-                f"📚 *Предмет:* {clean_course}\n"
-                f"⏰ *Открытие доступа:* `{ev.formatted_date}`\n"
-                f"⏳ *Статус:* _{ev.time_left_str}_\n"
-                f"🔗 {event_link}\n"
+        total_inactive = len(unopened_tests) + len(future_tasks)
+
+        if section == "tests":
+            cards = []
+            for idx, ev in enumerate(unopened_tests, 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                event_link = f"[📚 Страница в СДО]({ev.event_view_url})"
+                cards.append(
+                    f"{idx}. 🔒 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Открытие доступа:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 {event_link}\n"
+                )
+            text_body = (
+                f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
+                f"⏳ *ТЕСТЫ, КОТОРЫЕ ЕЩЕ НЕ ОТКРЫЛИСЬ* ({len(unopened_tests)}):\n\n" +
+                "\n────────────────────\n".join(cards)
             )
 
-        msg_parts.append("\n────────────────────\n".join(cards))
-        final_text = "\n".join(msg_parts)
+        elif section == "sept_oct":
+            cards = []
+            for idx, ev in enumerate(sept_oct_tasks, 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                task_link = f"[📝 К заданию]({ev.url})"
+                event_link = f"[📚 В СДО]({ev.event_view_url})"
+                cards.append(
+                    f"{idx}. 📌 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 {task_link} • {event_link}\n"
+                )
+            text_body = (
+                f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
+                f"🍂 *ЗАДАНИЯ НА СЕНТЯБРЬ И ОКТЯБРЬ* ({len(sept_oct_tasks)}):\n\n" +
+                "\n────────────────────\n".join(cards)
+            )
+
+        elif section == "nov_dec":
+            cards = []
+            for idx, ev in enumerate(nov_dec_tasks, 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                task_link = f"[📝 К заданию]({ev.url})"
+                cards.append(
+                    f"{idx}. 📌 *{clean_name}* ({clean_course})\n"
+                    f"⏰ *Срок:* `{ev.formatted_date}` ({ev.time_left_str}) • {task_link}"
+                )
+            text_body = (
+                f"🔒 *Неактивные дедлайны (> 21 дн.)* — всего {total_inactive}:\n\n"
+                f"❄️ *ЗАДАНИЯ НА НОЯБРЬ И ДЕКАБРЬ* ({len(nov_dec_tasks)}):\n\n" +
+                "\n\n".join(cards)
+            )
+
+        btn_tests = "🔘 ⏳ Тесты (12)" if section == "tests" else "⏳ Тесты (12)"
+        btn_sept_oct = "🔘 🍂 Сент-Окт (14)" if section == "sept_oct" else "🍂 Сент-Окт (14)"
+        btn_nov_dec = "🔘 ❄️ Нояб-Дек (33)" if section == "nov_dec" else "❄️ Нояб-Дек (33)"
 
         kb = {
             "inline_keyboard": [
-                [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
-                [{"text": "✅ Сданные работы", "callback_data": "show_completed"}],
-                [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
+                [
+                    {"text": btn_tests, "callback_data": "inactive_tests"},
+                    {"text": btn_sept_oct, "callback_data": "inactive_sept_oct"},
+                    {"text": btn_nov_dec, "callback_data": "inactive_nov_dec"}
+                ],
+                [
+                    {"text": "🟢 Открытые (до 21 дн.)", "callback_data": "show_deadlines"},
+                    {"text": "📱 Главное меню", "callback_data": "show_menu"}
+                ]
             ]
         }
-        await send_or_edit_message(chat_id, message_id, final_text, kb)
+        await send_or_edit_message(chat_id, message_id, text_body, kb)
 
     except Exception as e:
-        logger.error(f"Ошибка в handle_inactive: {e}", exc_info=True)
+        logger.error(f"Ошибка в handle_inactive_menu: {e}", exc_info=True)
 
 
 async def handle_completed_command(chat_id: str, message_id: Optional[int] = None):
@@ -668,7 +729,7 @@ async def poll_telegram_updates():
                         elif text in ["/deadlines", "🟢 Открытые дедлайны"]:
                             asyncio.create_task(handle_deadlines_command(chat_id))
                         elif text in ["/inactive", "🔒 Неактивные дедлайны"]:
-                            asyncio.create_task(handle_inactive_command(chat_id))
+                            asyncio.create_task(handle_inactive_menu(chat_id, section="tests"))
                         elif text in ["/completed", "/completed_deadlines", "✅ Сданные работы"]:
                             asyncio.create_task(handle_completed_command(chat_id))
                         elif text in ["/check", "🔄 Обновить СДО"]:
@@ -686,8 +747,12 @@ async def poll_telegram_updates():
 
                         if cb_data == "show_deadlines":
                             asyncio.create_task(handle_deadlines_command(chat_id, message_id=message_id))
-                        elif cb_data == "show_inactive":
-                            asyncio.create_task(handle_inactive_command(chat_id, message_id=message_id))
+                        elif cb_data in ["show_inactive", "inactive_menu", "inactive_tests"]:
+                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="tests"))
+                        elif cb_data == "inactive_sept_oct":
+                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="sept_oct"))
+                        elif cb_data == "inactive_nov_dec":
+                            asyncio.create_task(handle_inactive_menu(chat_id, message_id=message_id, section="nov_dec"))
                         elif cb_data == "show_menu":
                             asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
                         elif cb_data == "refresh_deadlines":
