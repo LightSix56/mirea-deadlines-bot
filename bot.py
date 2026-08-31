@@ -8,10 +8,18 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
-# Настройка UTF-8 для консоли Windows
+# Настройка UTF-8 для консоли Windows (если запущено с консолью)
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    if sys.stdout is not None:
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr is not None:
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from dotenv import load_dotenv
 from moodle_client import MoodleClient, DeadlineEvent, MSK_TZ
@@ -19,13 +27,15 @@ from moodle_client import MoodleClient, DeadlineEvent, MSK_TZ
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
+# Настройка логов
+log_handlers = [logging.FileHandler(os.path.join(BASE_DIR, "bot.log"), encoding="utf-8")]
+if sys.stdout is not None:
+    log_handlers.append(logging.StreamHandler(sys.stdout))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(BASE_DIR, "bot.log"), encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger("DeadlinesBot")
 
@@ -110,7 +120,6 @@ def format_time_diff(diff_seconds: int) -> str:
 
 
 async def tg_send_message(chat_id: str, text: str, reply_markup: Optional[Dict] = None):
-    """Отправляет сообщение в Telegram через HTTPX"""
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -269,7 +278,6 @@ async def background_monitoring_task():
 
 
 async def poll_telegram_updates():
-    """Надежный Long-Polling через HTTPX без сетевых таймаутов Windows"""
     logger.info("Long polling Telegram запущен...")
     offset = 0
 
@@ -293,7 +301,6 @@ async def poll_telegram_updates():
                 for update in updates:
                     offset = update["update_id"] + 1
 
-                    # Обработка сообщений
                     if "message" in update:
                         msg = update["message"]
                         chat_id = str(msg["chat"]["id"])
@@ -304,7 +311,6 @@ async def poll_telegram_updates():
                         elif text in ["/deadlines", "/check"]:
                             await handle_deadlines_command(chat_id)
 
-                    # Обработка кликов по кнопкам
                     elif "callback_query" in update:
                         cb = update["callback_query"]
                         cb_id = cb["id"]
@@ -331,7 +337,6 @@ async def main():
 
     logger.info("Бот успешно запущен и отслеживает дедлайны...")
     
-    # Запускаем фоновый мониторинг и long polling одновременно
     await asyncio.gather(
         background_monitoring_task(),
         poll_telegram_updates()
