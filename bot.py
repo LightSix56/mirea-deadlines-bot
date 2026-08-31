@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -22,11 +22,20 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from moodle_client import MoodleClient, DeadlineEvent, MSK_TZ
 
-# Логирование
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("DeadlinesBot")
+# Абсолютный путь к папке проекта
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-load_dotenv()
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(BASE_DIR, "bot.log"), encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("DeadlinesBot")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -35,7 +44,7 @@ MOODLE_TOKEN = os.getenv("MOODLE_TOKEN")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "2"))
 PORT = int(os.getenv("PORT", "8000"))
 
-STATE_FILE = "events_state.json"
+STATE_FILE = os.path.join(BASE_DIR, "events_state.json")
 
 
 class IPv4Session(AiohttpSession):
@@ -283,7 +292,6 @@ async def background_monitoring_task(bot: Bot):
 
 
 async def start_healthcheck_server():
-    """Легковесный HTTP-сервер для прохождения Healthcheck на Koyeb / Render"""
     async def handle(request):
         return web.Response(text="MIREA Deadlines Bot is running 24/7!")
 
@@ -306,13 +314,12 @@ async def main():
         print("ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
         return
 
-    # Запускаем Healthcheck сервер для облака
     await start_healthcheck_server()
 
     session = IPv4Session()
     bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
     asyncio.create_task(background_monitoring_task(bot))
-    print("🤖 Бот успешно запущен и отслеживает дедлайны и открытия тестов...")
+    logger.info("Бот успешно запущен и отслеживает дедлайны...")
     try:
         await dp.start_polling(bot)
     finally:
