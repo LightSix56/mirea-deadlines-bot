@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
-# 1. Принудительный IPv4 (полностью устраняет зависания сетевых сокетов на IPv6 в РФ)
+# 1. Принудительный IPv4 (устраняет любые зависания на сокетах IPv6 в РФ)
 orig_getaddrinfo = socket.getaddrinfo
 def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
@@ -185,7 +185,7 @@ async def send_or_edit_message(chat_id: str, message_id: Optional[int], text: st
 
 async def set_bot_menu_commands():
     commands = [
-        {"command": "deadlines", "description": "📋 Доступные дедлайны (до 3 недель)"},
+        {"command": "deadlines", "description": "📋 Доступные дедлайны"},
         {"command": "completed", "description": "✅ Сданные / закрытые работы"},
         {"command": "menu", "description": "📱 Главное меню"},
         {"command": "check", "description": "🔄 Принудительно обновить СДО"}
@@ -196,8 +196,7 @@ async def set_bot_menu_commands():
 async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
     kb = {
         "inline_keyboard": [
-            [{"text": "📋 Ближайшие дедлайны (до 3 нед.)", "callback_data": "show_deadlines"}],
-            [{"text": "📅 Дедлайны на 30 дней", "callback_data": "show_deadlines_30"}],
+            [{"text": "📋 Ближайшие дедлайны", "callback_data": "show_deadlines"}],
             [{"text": "✅ Сданные / закрытые работы", "callback_data": "show_completed"}],
             [{"text": "🔄 Проверить обновления СДО", "callback_data": "refresh_deadlines"}]
         ]
@@ -205,7 +204,7 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
     text = (
         "👋 *Главное меню бота СДО РТУ МИРЭА*\n\n"
         "⚡️ *Только доступные задания:* закрытые тесты скрыты до момента открытия.\n"
-        "🎯 *Фильтр по времени:* дедлайны на ближайшие **3 недели**.\n"
+        "🎯 *Фильтр по времени:* дедлайны на ближайшие **3 недели** (или на месяц, если в 3 недели пусто).\n"
         "🆕 *Новинки:* новые добавленные работы выделяются при первом показе.\n"
         "✅ *Отметки:* любую работу можно отметить сданной кнопкой `[✅ Сдал #N]`.\n\n"
         "Выберите действие кнопками ниже:"
@@ -213,7 +212,7 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
     await send_or_edit_message(chat_id, message_id, text, kb)
 
 
-async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_id: Optional[int] = None):
+async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
     global CACHED_EVENTS
     try:
         all_events = CACHED_EVENTS
@@ -222,12 +221,12 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
 
         now = datetime.now(MSK_TZ)
         now_ts = int(now.timestamp())
-        max_seconds = days_limit * 24 * 3600
+        
+        three_weeks_seconds = 21 * 24 * 3600
+        month_seconds = 31 * 24 * 3600
 
-        new_events = []
-        regular_events = []
-        future_nearest_event: Optional[DeadlineEvent] = None
-
+        # Собираем все доступные незакрытые работы
+        available_events = []
         for event in all_events:
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
@@ -242,40 +241,52 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
             if time_diff < -7200:
                 continue
 
-            if time_diff <= max_seconds:
-                if ev_state.get("is_new_unseen", False):
-                    new_events.append(event)
-                else:
-                    regular_events.append(event)
-            elif future_nearest_event is None:
-                future_nearest_event = event
+            available_events.append(event)
 
-        all_shown = new_events + regular_events
+        # 1. Проверяем, есть ли работы на 3 недели (21 день)
+        target_events = [e for e in available_events if (e.due_timestamp - now_ts) <= three_weeks_seconds]
+        is_month_extended = False
 
-        if not all_shown:
+        # 2. Если на 3 недели пусто, но есть работы в пределах месяца (31 день) — показываем их
+        if not target_events:
+            target_events = [e for e in available_events if (e.due_timestamp - now_ts) <= month_seconds]
+            is_month_extended = True
+
+        # 3. Если вообще нет работ даже на месяц
+        if not target_events:
+            future_event = available_events[0] if available_events else None
             nearest_info = ""
-            if future_nearest_event:
-                days_away = (future_nearest_event.due_timestamp - now_ts) / 86400.0
-                f_name = clean_text_for_markdown(future_nearest_event.clean_name)
-                f_course = clean_text_for_markdown(future_nearest_event.course_name)
+            if future_event:
+                days_away = (future_event.due_timestamp - now_ts) / 86400.0
+                f_name = clean_text_for_markdown(future_event.clean_name)
+                f_course = clean_text_for_markdown(future_event.course_name)
                 nearest_info = (
-                    f"\n\n🗓 *Ближайшая сдача:* `{future_nearest_event.formatted_date}` (через {days_away:.0f} дн.)\n"
+                    f"\n\n🗓 *Ближайшая сдача:* `{future_event.formatted_date}` (через {days_away:.0f} дн.)\n"
                     f"📌 *{f_name}* ({f_course})"
                 )
 
             text = (
-                f"🎉 *Отличные новости!* В ближайшие **{days_limit} дней** горящих дедлайнов нет.\n"
+                f"🎉 *Отличные новости!* В ближайший месяц горящих дедлайнов нет.\n"
                 f"_Все доступные работы запланированы позже, а закрытые тесты еще не начались_{nearest_info}"
             )
             kb = {
                 "inline_keyboard": [
-                    [{"text": "📅 Показать на 30 дней", "callback_data": "show_deadlines_30"}],
                     [{"text": "✅ Посмотреть сданные работы", "callback_data": "show_completed"}],
                     [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
                 ]
             }
             await send_or_edit_message(chat_id, message_id, text, kb)
             return
+
+        new_events = []
+        regular_events = []
+        for ev in target_events:
+            ev_key = str(ev.event_id)
+            ev_state = events_dict.get(ev_key, {})
+            if ev_state.get("is_new_unseen", False):
+                new_events.append(ev)
+            else:
+                regular_events.append(ev)
 
         msg_parts = []
         inline_keyboard = []
@@ -292,7 +303,11 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
             msg_parts.append("\n────────────────────\n".join(cards))
 
         if regular_events:
-            header_title = f"📋 *Доступные дедлайны (до {days_limit} дн.)*" if not new_events else f"📋 *Остальные дедлайны (до {days_limit} дн.)*"
+            if is_month_extended:
+                header_title = f"📋 *В ближайшие 3 недели сдач нет. Работы на месяц (до 30 дн.)*" if not new_events else f"📋 *Остальные работы на месяц*"
+            else:
+                header_title = f"📋 *Доступные дедлайны (до 3 недель)*" if not new_events else f"📋 *Остальные дедлайны (до 3 недель)*"
+            
             msg_parts.append(f"{header_title} — {len(regular_events)}:")
             cards = []
             for ev in regular_events:
@@ -310,13 +325,11 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_i
         if row:
             inline_keyboard.append(row)
 
-        menu_row = []
-        if days_limit == 21:
-            menu_row.append({"text": "📅 На 30 дней", "callback_data": "show_deadlines_30"})
-        else:
-            menu_row.append({"text": "🎯 На 3 недели", "callback_data": "show_deadlines"})
-        menu_row.append({"text": "✅ Сданные", "callback_data": "show_completed"})
-        menu_row.append({"text": "🔄 Обновить", "callback_data": "refresh_deadlines"})
+        menu_row = [
+            {"text": "✅ Сданные", "callback_data": "show_completed"},
+            {"text": "🔄 Обновить", "callback_data": "refresh_deadlines"},
+            {"text": "📱 Меню", "callback_data": "show_menu"}
+        ]
         inline_keyboard.append(menu_row)
 
         final_text = "\n\n".join(msg_parts)
@@ -346,7 +359,7 @@ async def handle_completed_command(chat_id: str, message_id: Optional[int] = Non
     if not completed_list:
         kb = {
             "inline_keyboard": [
-                [{"text": "📋 Показать дедлайны", "callback_data": "show_deadlines"}],
+                [{"text": "📋 К дедлайнам", "callback_data": "show_deadlines"}],
                 [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
             ]
         }
@@ -605,9 +618,7 @@ async def poll_telegram_updates():
                     if text in ["/start", "/menu", "📱 Главное меню"]:
                         asyncio.create_task(handle_start_or_menu(chat_id))
                     elif text in ["/deadlines", "📋 Дедлайны (до 3 нед.)"]:
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21))
-                    elif text in ["/deadlines_30", "📅 Дедлайны на 30 дней"]:
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=31))
+                        asyncio.create_task(handle_deadlines_command(chat_id))
                     elif text in ["/completed", "/completed_deadlines", "✅ Сданные работы"]:
                         asyncio.create_task(handle_completed_command(chat_id))
                     elif text in ["/check", "🔄 Обновить СДО"]:
@@ -624,9 +635,7 @@ async def poll_telegram_updates():
                     asyncio.create_task(tg_api("answerCallbackQuery", {"callback_query_id": cb_id}))
 
                     if cb_data == "show_deadlines":
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, message_id=message_id))
-                    elif cb_data == "show_deadlines_30":
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=31, message_id=message_id))
+                        asyncio.create_task(handle_deadlines_command(chat_id, message_id=message_id))
                     elif cb_data == "show_menu":
                         asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
                     elif cb_data == "refresh_deadlines":
@@ -662,7 +671,7 @@ async def main():
     except Exception as e:
         logger.warning(f"Команды меню: {e}")
 
-    logger.info("Бот запущен с принудительным IPv4 и мгновенным откликом!")
+    logger.info("Бот запущен с автоматическим определением горизонта дедлайнов!")
     
     await asyncio.gather(
         background_monitoring_task(),
