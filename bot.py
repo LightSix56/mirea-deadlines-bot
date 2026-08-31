@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
-# 1. Принудительный IPv4 (устраняет любые зависания на IPv6 сокетах в РФ)
+# 1. Принудительный IPv4 (полностью исключает зависания сетевых сокетов на IPv6 в РФ)
 orig_getaddrinfo = socket.getaddrinfo
 def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
@@ -55,10 +55,7 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "2"))
 STATE_FILE = os.path.join(BASE_DIR, "events_state.json")
 TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-# Выделенный клиент для Polling
-POLL_CLIENT: Optional[httpx.AsyncClient] = None
-
-# Кэш в памяти
+# Кэш в оперативной памяти
 CACHED_EVENTS: List[DeadlineEvent] = []
 
 
@@ -194,7 +191,7 @@ def get_bottom_reply_keyboard() -> Dict:
 async def set_bot_menu_commands():
     commands = [
         {"command": "deadlines", "description": "🟢 Открытые дедлайны"},
-        {"command": "inactive", "description": "🔒 Неактивные дедлайны"},
+        {"command": "inactive", "description": "🔒 Неактивные дедлайны (еще не открылись)"},
         {"command": "completed", "description": "✅ Сданные работы"},
         {"command": "menu", "description": "📱 Главное меню"},
         {"command": "check", "description": "🔄 Принудительно обновить СДО"}
@@ -224,7 +221,7 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
 
 
 async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает только ОТКРЫТЫЕ и доступные для сдачи дедлайны (на 30 дней)"""
+    """Показывает только ОТКРЫТЫЕ и доступные для сдачи дедлайны"""
     global CACHED_EVENTS
     try:
         if not CACHED_EVENTS:
@@ -240,9 +237,9 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
         three_weeks_seconds = 21 * 24 * 3600
         month_seconds = 31 * 24 * 3600
 
-        # Собираем открытые незакрытые работы
         available_events = []
         for event in all_events:
+            # Скрываем не открывшиеся тесты (они в Неактивных)
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
@@ -347,7 +344,7 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
 
 
 async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает НЕАКТИВНЫЕ (еще не открывшиеся тесты и задания на отдаленные месяцы)"""
+    """Показывает ВСЕ тесты и работы, которые еще НЕ ОТКРЫЛИСЬ"""
     global CACHED_EVENTS
     try:
         if not CACHED_EVENTS:
@@ -356,17 +353,12 @@ async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None
         all_events = CACHED_EVENTS
         now = datetime.now(MSK_TZ)
         now_ts = int(now.timestamp())
-        month_seconds = 31 * 24 * 3600
 
-        # 1. Еще не открывшиеся тесты
-        unopened_tests = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
-        # 2. Задания на дальние месяцы (срок > 1 месяца)
-        far_future_tasks = [e for e in all_events if (not e.is_opening) and (e.due_timestamp - now_ts > month_seconds)]
+        # Собираем ВСЕ события, которые откроются в будущем (is_opening == True и due_timestamp > now_ts)
+        unopened_events = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
 
-        total_inactive = len(unopened_tests) + len(far_future_tasks)
-
-        if total_inactive == 0:
-            text = "🔒 *Неактивных заданий нет.* Все запланированные в СДО работы уже открыты и входят в ближайший список!"
+        if not unopened_events:
+            text = "🔒 *Все запланированные тесты и задания уже открыты!*"
             kb = {
                 "inline_keyboard": [
                     [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -376,42 +368,23 @@ async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None
             await send_or_edit_message(chat_id, message_id, text, kb)
             return
 
-        msg_parts = [f"🔒 *Неактивные дедлайны и тесты* (всего: {total_inactive}):\n"]
+        msg_parts = [f"🔒 *Тесты и задания, которые еще НЕ открылись* ({len(unopened_events)}):\n"]
+        cards = []
+        for idx, ev in enumerate(unopened_events, 1):
+            clean_name = clean_text_for_markdown(ev.clean_name)
+            clean_course = clean_text_for_markdown(ev.course_name)
+            event_link = f"[📚 Страница в СДО]({ev.event_view_url})"
+            cards.append(
+                f"{idx}. 🔒 *{clean_name}*\n"
+                f"📚 *Предмет:* {clean_course}\n"
+                f"⏰ *Открытие доступа:* `{ev.formatted_date}`\n"
+                f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                f"🔗 {event_link}\n"
+            )
 
-        # Секция 1: Закрытые тесты (откроются позже)
-        if unopened_tests:
-            msg_parts.append(f"⏳ *Тесты, которые откроются позже* — {len(unopened_tests)}:")
-            cards = []
-            for idx, ev in enumerate(unopened_tests[:8], 1):
-                clean_name = clean_text_for_markdown(ev.clean_name)
-                clean_course = clean_text_for_markdown(ev.course_name)
-                event_link = f"[📚 Страница в СДО]({ev.event_view_url})"
-                cards.append(
-                    f"{idx}. 🔒 *{clean_name}*\n"
-                    f"📚 *Предмет:* {clean_course}\n"
-                    f"⏰ *Открытие доступа:* `{ev.formatted_date}`\n"
-                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
-                    f"🔗 {event_link}\n"
-                )
-            msg_parts.append("\n────────────────────\n".join(cards))
-
-        # Секция 2: Задания на отдаленные месяцы (октябрь-декабрь)
-        if far_future_tasks:
-            msg_parts.append(f"\n🗓 *Задания на отдаленные месяцы (срок > 30 дней)* — {len(far_future_tasks)}:")
-            cards = []
-            for idx, ev in enumerate(far_future_tasks[:6], 1):
-                clean_name = clean_text_for_markdown(ev.clean_name)
-                clean_course = clean_text_for_markdown(ev.course_name)
-                cards.append(
-                    f"{idx}. 📌 *{clean_name}*\n"
-                    f"📚 *Предмет:* {clean_course}\n"
-                    f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
-                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
-                    f"🔗 [📝 К заданию]({ev.url})\n"
-                )
-            msg_parts.append("\n────────────────────\n".join(cards))
-
+        msg_parts.append("\n────────────────────\n".join(cards))
         final_text = "\n".join(msg_parts)
+
         kb = {
             "inline_keyboard": [
                 [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -663,73 +636,70 @@ async def background_monitoring_task():
 
 
 async def poll_telegram_updates():
-    global POLL_CLIENT
     logger.info("Long polling Telegram запущен...")
     offset = 0
 
-    if POLL_CLIENT is None or POLL_CLIENT.is_closed:
-        POLL_CLIENT = httpx.AsyncClient(timeout=25.0)
-
     while True:
         try:
-            params = {"offset": offset, "timeout": 15}
-            resp = await POLL_CLIENT.get(f"{TG_API_URL}/getUpdates", params=params)
-            
-            if resp.status_code != 200:
-                await asyncio.sleep(1)
-                continue
+            async with httpx.AsyncClient(timeout=25.0) as poll_client:
+                params = {"offset": offset, "timeout": 15}
+                resp = await poll_client.get(f"{TG_API_URL}/getUpdates", params=params)
+                
+                if resp.status_code != 200:
+                    await asyncio.sleep(1)
+                    continue
 
-            data = resp.json()
-            if not data.get("ok"):
-                await asyncio.sleep(1)
-                continue
+                data = resp.json()
+                if not data.get("ok"):
+                    await asyncio.sleep(1)
+                    continue
 
-            updates = data.get("result", [])
-            for update in updates:
-                offset = update["update_id"] + 1
+                updates = data.get("result", [])
+                for update in updates:
+                    offset = update["update_id"] + 1
 
-                if "message" in update:
-                    msg = update["message"]
-                    chat_id = str(msg["chat"]["id"])
-                    text = (msg.get("text") or "").strip()
+                    if "message" in update:
+                        msg = update["message"]
+                        chat_id = str(msg["chat"]["id"])
+                        text = (msg.get("text") or "").strip()
 
-                    if text in ["/start", "/menu", "📱 Главное меню"]:
-                        asyncio.create_task(handle_start_or_menu(chat_id))
-                    elif text in ["/deadlines", "🟢 Открытые дедлайны"]:
-                        asyncio.create_task(handle_deadlines_command(chat_id))
-                    elif text in ["/inactive", "🔒 Неактивные дедлайны"]:
-                        asyncio.create_task(handle_inactive_command(chat_id))
-                    elif text in ["/completed", "/completed_deadlines", "✅ Сданные работы"]:
-                        asyncio.create_task(handle_completed_command(chat_id))
-                    elif text in ["/check", "🔄 Обновить СДО"]:
-                        asyncio.create_task(handle_force_refresh_command(chat_id))
+                        if text in ["/start", "/menu", "📱 Главное меню"]:
+                            asyncio.create_task(handle_start_or_menu(chat_id))
+                        elif text in ["/deadlines", "🟢 Открытые дедлайны"]:
+                            asyncio.create_task(handle_deadlines_command(chat_id))
+                        elif text in ["/inactive", "🔒 Неактивные дедлайны"]:
+                            asyncio.create_task(handle_inactive_command(chat_id))
+                        elif text in ["/completed", "/completed_deadlines", "✅ Сданные работы"]:
+                            asyncio.create_task(handle_completed_command(chat_id))
+                        elif text in ["/check", "🔄 Обновить СДО"]:
+                            asyncio.create_task(handle_force_refresh_command(chat_id))
 
-                elif "callback_query" in update:
-                    cb = update["callback_query"]
-                    cb_id = cb["id"]
-                    msg = cb.get("message", {})
-                    chat_id = str(msg.get("chat", {}).get("id"))
-                    message_id = msg.get("message_id")
-                    cb_data = cb.get("data", "")
+                    elif "callback_query" in update:
+                        cb = update["callback_query"]
+                        cb_id = cb["id"]
+                        msg = cb.get("message", {})
+                        chat_id = str(msg.get("chat", {}).get("id"))
+                        message_id = msg.get("message_id")
+                        cb_data = cb.get("data", "")
 
-                    asyncio.create_task(tg_api("answerCallbackQuery", {"callback_query_id": cb_id}))
+                        asyncio.create_task(tg_api("answerCallbackQuery", {"callback_query_id": cb_id}))
 
-                    if cb_data == "show_deadlines":
-                        asyncio.create_task(handle_deadlines_command(chat_id, message_id=message_id))
-                    elif cb_data == "show_inactive":
-                        asyncio.create_task(handle_inactive_command(chat_id, message_id=message_id))
-                    elif cb_data == "show_menu":
-                        asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
-                    elif cb_data == "refresh_deadlines":
-                        asyncio.create_task(handle_force_refresh_command(chat_id, message_id=message_id))
-                    elif cb_data == "show_completed":
-                        asyncio.create_task(handle_completed_command(chat_id, message_id=message_id))
-                    elif cb_data.startswith("done_"):
-                        ev_id = cb_data.replace("done_", "")
-                        asyncio.create_task(handle_mark_done(chat_id, message_id, ev_id))
-                    elif cb_data.startswith("undone_"):
-                        ev_id = cb_data.replace("undone_", "")
-                        asyncio.create_task(handle_mark_undone(chat_id, message_id, ev_id))
+                        if cb_data == "show_deadlines":
+                            asyncio.create_task(handle_deadlines_command(chat_id, message_id=message_id))
+                        elif cb_data == "show_inactive":
+                            asyncio.create_task(handle_inactive_command(chat_id, message_id=message_id))
+                        elif cb_data == "show_menu":
+                            asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
+                        elif cb_data == "refresh_deadlines":
+                            asyncio.create_task(handle_force_refresh_command(chat_id, message_id=message_id))
+                        elif cb_data == "show_completed":
+                            asyncio.create_task(handle_completed_command(chat_id, message_id=message_id))
+                        elif cb_data.startswith("done_"):
+                            ev_id = cb_data.replace("done_", "")
+                            asyncio.create_task(handle_mark_done(chat_id, message_id, ev_id))
+                        elif cb_data.startswith("undone_"):
+                            ev_id = cb_data.replace("undone_", "")
+                            asyncio.create_task(handle_mark_undone(chat_id, message_id, ev_id))
 
         except httpx.TimeoutException:
             pass
