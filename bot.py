@@ -10,10 +10,16 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
-# 1. Принудительный IPv4 (полностью исключает зависания сетевых сокетов на IPv6 в РФ)
+# 1. Принудительный IPv4 с безопасным fallback
 orig_getaddrinfo = socket.getaddrinfo
 def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    try:
+        res = orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        if res:
+            return res
+    except Exception:
+        pass
+    return orig_getaddrinfo(host, port, family, type, proto, flags)
 socket.getaddrinfo = ipv4_getaddrinfo
 
 # 2. Настройка UTF-8 для консоли
