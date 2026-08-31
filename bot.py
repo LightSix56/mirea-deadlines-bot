@@ -148,15 +148,25 @@ def format_time_diff(diff_seconds: int) -> str:
         return f"Сдвинут раньше на {time_str.strip()}"
 
 
+API_CLIENT: Optional[httpx.AsyncClient] = None
+
+def get_api_client() -> httpx.AsyncClient:
+    global API_CLIENT
+    if API_CLIENT is None or API_CLIENT.is_closed:
+        limits = httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=30.0)
+        API_CLIENT = httpx.AsyncClient(limits=limits, timeout=12.0)
+    return API_CLIENT
+
+
 async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
+    client = get_api_client()
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(f"{TG_API_URL}/{method}", json=payload or {})
-            data = resp.json()
-            desc = data.get("description", "")
-            if not data.get("ok") and "message is not modified" not in desc:
-                logger.warning(f"Telegram API ({method}): {desc}")
-            return data
+        resp = await client.post(f"{TG_API_URL}/{method}", json=payload or {})
+        data = resp.json()
+        desc = data.get("description", "")
+        if not data.get("ok") and "message is not modified" not in desc:
+            logger.warning(f"Telegram API ({method}): {desc}")
+        return data
     except Exception as e:
         logger.error(f"Сетевая ошибка Telegram API ({method}): {e}")
         return {}
