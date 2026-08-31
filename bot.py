@@ -1,8 +1,4 @@
-import sys
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
+﻿import sys
 import os
 import json
 import socket
@@ -12,6 +8,12 @@ import aiohttp
 from aiohttp import web
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any
+
+# Исправление сетевого стека для Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
@@ -48,10 +50,19 @@ STATE_FILE = os.path.join(BASE_DIR, "events_state.json")
 
 
 class IPv4Session(AiohttpSession):
+    """Сетевая сессия с чистым IPv4 и отключенным happy-eyeballs для стабильности на Windows"""
     async def create_session(self) -> aiohttp.ClientSession:
-        return aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(family=socket.AF_INET)
-        )
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(
+                family=socket.AF_INET,
+                happy_eyeballs_delay=None,
+                enable_cleanup_closed=True
+            )
+            self._session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=45, connect=15)
+            )
+        return self._session
 
 
 def load_events_state() -> Dict[str, Any]:
@@ -306,7 +317,7 @@ async def start_healthcheck_server():
         await site.start()
         logger.info(f"Healthcheck сервер запущен на порту {PORT}")
     except Exception as e:
-        logger.warning(f"Не удалось запустить healthcheck на порту {PORT}: {e}")
+        logger.warning(f"Healthcheck сервер не запущен: {e}")
 
 
 async def main():
@@ -320,10 +331,13 @@ async def main():
     bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
     asyncio.create_task(background_monitoring_task(bot))
     logger.info("Бот успешно запущен и отслеживает дедлайны...")
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+
+    while True:
+        try:
+            await dp.start_polling(bot, handle_signals=False)
+        except Exception as e:
+            logger.error(f"Сбой polling Telegram ({e}). Переподключение через 5 сек...")
+            await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
