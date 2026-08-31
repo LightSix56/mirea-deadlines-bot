@@ -221,23 +221,6 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
 
 
 async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает только ОТКРЫТЫЕ и доступные для сдачи дедлайны"""
-    global CACHED_EVENTS
-    try:
-        if not CACHED_EVENTS:
-            await fetch_moodle_calendar_to_cache()
-
-        all_events = CACHED_EVENTS
-        state_data = load_events_state()
-        events_dict = state_data.get("events", {})
-
-        now = datetime.now(MSK_TZ)
-        now_ts = int(now.timestamp())
-        
-        three_weeks_seconds = 21 * 24 * 3600
-        month_seconds = 31 * 24 * 3600
-
-async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
     """Показывает только ОТКРЫТЫЕ дедлайны со сроком сдачи до 21 дня (3 недели)"""
     global CACHED_EVENTS
     try:
