@@ -48,10 +48,12 @@ TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 THREE_WEEKS_SECONDS = 21 * 24 * 3600
 
-# Глобальный пул постоянных соединений для молниеносных ответов Telegram
-TG_CLIENT: Optional[httpx.AsyncClient] = None
+# Раздельные клиенты для параллельной работы без блокировок
+API_CLIENT: Optional[httpx.AsyncClient] = None
+POLL_CLIENT: Optional[httpx.AsyncClient] = None
+
 CACHED_EVENTS: List[DeadlineEvent] = []
-LAST_CACHE_UPDATE: float = 0
+CACHE_LOCK = asyncio.Lock()
 
 
 def load_events_state() -> Dict[str, Any]:
@@ -79,20 +81,18 @@ def get_moodle_client() -> MoodleClient:
     return MoodleClient(calendar_url=CALENDAR_URL, token=MOODLE_TOKEN)
 
 
-async def get_events(force_refresh: bool = False) -> List[DeadlineEvent]:
-    """Возвращает кэшированные события или мгновенно обновляет кэш"""
-    global CACHED_EVENTS, LAST_CACHE_UPDATE
-    now_ts = time.time()
-    
-    # Если кэш свежее 60 секунд и не требуется принудительный рефреш — отдаем мгновенно из памяти
-    if not force_refresh and CACHED_EVENTS and (now_ts - LAST_CACHE_UPDATE < 90):
-        return CACHED_EVENTS
-
+async def update_events_cache() -> List[DeadlineEvent]:
+    """Фоновое обновление кэша событий"""
+    global CACHED_EVENTS
     client = get_moodle_client()
-    events = await client.get_upcoming_deadlines(limit=100)
-    CACHED_EVENTS = events
-    LAST_CACHE_UPDATE = now_ts
-    return CACHED_EVENTS
+    try:
+        events = await client.get_upcoming_deadlines(limit=100)
+        async with CACHE_LOCK:
+            CACHED_EVENTS = events
+        return events
+    except Exception as e:
+        logger.error(f"Ошибка загрузки СДО в кэш: {e}")
+        return CACHED_EVENTS
 
 
 def format_deadline_card(event: DeadlineEvent, num: Optional[int] = None) -> str:
@@ -128,15 +128,16 @@ def format_time_diff(diff_seconds: int) -> str:
         return f"Сдвинут раньше на {time_str.strip()}"
 
 
-async def tg_request(method: str, payload: Optional[Dict] = None):
-    global TG_CLIENT
-    if TG_CLIENT is None or TG_CLIENT.is_closed:
-        TG_CLIENT = httpx.AsyncClient(timeout=25.0)
+async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
+    """Мгновенный запрос к Telegram API через выделенный постоянный сокет"""
+    global API_CLIENT
+    if API_CLIENT is None or API_CLIENT.is_closed:
+        API_CLIENT = httpx.AsyncClient(timeout=15.0, http2=False)
     try:
-        resp = await TG_CLIENT.post(f"{TG_API_URL}/{method}", json=payload or {})
+        resp = await API_CLIENT.post(f"{TG_API_URL}/{method}", json=payload or {})
         return resp.json()
     except Exception as e:
-        logger.error(f"Ошибка запроса Telegram ({method}): {e}")
+        logger.error(f"Ошибка TG API ({method}): {e}")
         return {}
 
 
@@ -145,12 +146,12 @@ async def set_bot_menu_commands():
         {"command": "deadlines", "description": "📋 Доступные дедлайны (до 3 недель)"},
         {"command": "completed", "description": "✅ Сданные / закрытые работы"},
         {"command": "menu", "description": "📱 Главное меню"},
-        {"command": "check", "description": "🔄 Принудительно обновить СДО"}
+        {"command": "check", "description": "🔄 Обновить данные из СДО"}
     ]
-    await tg_request("setMyCommands", {"commands": commands})
+    await tg_api("setMyCommands", {"commands": commands})
 
 
-async def handle_start_or_menu(chat_id: str):
+async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
     kb = {
         "inline_keyboard": [
             [{"text": "📋 Ближайшие дедлайны (до 3 нед.)", "callback_data": "show_deadlines"}],
@@ -167,17 +168,30 @@ async def handle_start_or_menu(chat_id: str):
         "✅ *Отметки:* любую работу можно отметить сданной кнопкой `[✅ Сдал #N]`.\n\n"
         "Выберите действие кнопками ниже:"
     )
-    await tg_request("sendMessage", {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": kb
-    })
+    if message_id:
+        await tg_api("editMessageText", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": kb
+        })
+    else:
+        await tg_api("sendMessage", {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": kb
+        })
 
 
-async def handle_deadlines_command(chat_id: str, days_limit: int = 21, force_refresh: bool = False):
+async def handle_deadlines_command(chat_id: str, days_limit: int = 21, message_id: Optional[int] = None, force_refresh: bool = False):
     try:
-        all_events = await get_events(force_refresh=force_refresh)
+        if force_refresh or not CACHED_EVENTS:
+            all_events = await update_events_cache()
+        else:
+            all_events = CACHED_EVENTS
+
         state_data = load_events_state()
         events_dict = state_data.get("events", {})
 
@@ -190,7 +204,6 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, force_ref
         future_nearest_event: Optional[DeadlineEvent] = None
 
         for event in all_events:
-            # Скрываем события будущего открытия (они еще недоступны)
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
@@ -230,15 +243,25 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, force_ref
             kb = {
                 "inline_keyboard": [
                     [{"text": "📅 Показать на 30 дней", "callback_data": "show_deadlines_30"}],
-                    [{"text": "✅ Посмотреть сданные работы", "callback_data": "show_completed"}]
+                    [{"text": "✅ Посмотреть сданные работы", "callback_data": "show_completed"}],
+                    [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
                 ]
             }
-            await tg_request("sendMessage", {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown",
-                "reply_markup": kb
-            })
+            if message_id:
+                await tg_api("editMessageText", {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                    "reply_markup": kb
+                })
+            else:
+                await tg_api("sendMessage", {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                    "reply_markup": kb
+                })
             return
 
         msg_parts = []
@@ -284,13 +307,23 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, force_ref
         inline_keyboard.append(menu_row)
 
         final_text = "\n\n".join(msg_parts)
-        await tg_request("sendMessage", {
-            "chat_id": chat_id,
-            "text": final_text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
-            "reply_markup": {"inline_keyboard": inline_keyboard}
-        })
+        if message_id:
+            await tg_api("editMessageText", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": final_text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+                "reply_markup": {"inline_keyboard": inline_keyboard}
+            })
+        else:
+            await tg_api("sendMessage", {
+                "chat_id": chat_id,
+                "text": final_text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+                "reply_markup": {"inline_keyboard": inline_keyboard}
+            })
 
         if new_events:
             for ev in new_events:
@@ -302,14 +335,13 @@ async def handle_deadlines_command(chat_id: str, days_limit: int = 21, force_ref
 
     except Exception as e:
         logger.error(f"Ошибка в handle_deadlines: {e}", exc_info=True)
-        await tg_request("sendMessage", {
+        await tg_api("sendMessage", {
             "chat_id": chat_id,
             "text": f"❌ Не удалось получить дедлайны: {e}\n\nПроверьте `CALENDAR_URL` в `.env`."
         })
 
 
-async def handle_completed_command(chat_id: str):
-    """Показывает список сданных / закрытых работ (чистый Markdown)"""
+async def handle_completed_command(chat_id: str, message_id: Optional[int] = None):
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -319,13 +351,28 @@ async def handle_completed_command(chat_id: str):
             completed_list.append((ev_id, ev_data))
 
     if not completed_list:
-        kb = {"inline_keyboard": [[{"text": "📋 Показать дедлайны", "callback_data": "show_deadlines"}]]}
-        await tg_request("sendMessage", {
-            "chat_id": chat_id,
-            "text": "📭 *Список сданных работ пуст.*\n\nКогда вы сдадите работу, нажмите кнопку *«✅ Сдал #N»* в списке дедлайнов.",
-            "parse_mode": "Markdown",
-            "reply_markup": kb
-        })
+        kb = {
+            "inline_keyboard": [
+                [{"text": "📋 Показать дедлайны", "callback_data": "show_deadlines"}],
+                [{"text": "📱 Главное меню", "callback_data": "show_menu"}]
+            ]
+        }
+        text = "📭 *Список сданных работ пуст.*\n\nКогда вы сдадите работу, нажмите кнопку *«✅ Сдал #N»* в списке дедлайнов."
+        if message_id:
+            await tg_api("editMessageText", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "parse_mode": "Markdown",
+                "reply_markup": kb
+            })
+        else:
+            await tg_api("sendMessage", {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+                "reply_markup": kb
+            })
         return
 
     completed_list.sort(key=lambda x: x[1].get("completed_at", 0), reverse=True)
@@ -346,17 +393,30 @@ async def handle_completed_command(chat_id: str):
     if row:
         buttons.append(row)
 
-    buttons.append([{"text": "📋 Вернуться к дедлайнам", "callback_data": "show_deadlines"}])
+    buttons.append([
+        {"text": "📋 К дедлайнам", "callback_data": "show_deadlines"},
+        {"text": "📱 Меню", "callback_data": "show_menu"}
+    ])
 
-    await tg_request("sendMessage", {
-        "chat_id": chat_id,
-        "text": "\n".join(text_parts),
-        "parse_mode": "Markdown",
-        "reply_markup": {"inline_keyboard": buttons}
-    })
+    final_text = "\n".join(text_parts)
+    if message_id:
+        await tg_api("editMessageText", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": final_text,
+            "parse_mode": "Markdown",
+            "reply_markup": {"inline_keyboard": buttons}
+        })
+    else:
+        await tg_api("sendMessage", {
+            "chat_id": chat_id,
+            "text": final_text,
+            "parse_mode": "Markdown",
+            "reply_markup": {"inline_keyboard": buttons}
+        })
 
 
-async def handle_mark_done(chat_id: str, callback_id: str, event_id: str):
+async def handle_mark_done(chat_id: str, message_id: Optional[int], event_id: str):
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -366,13 +426,6 @@ async def handle_mark_done(chat_id: str, callback_id: str, event_id: str):
         events_dict[event_id]["is_new_unseen"] = False
         state_data["events"] = events_dict
         save_events_state(state_data)
-        
-        name = events_dict[event_id].get("name", "Задание")
-        await tg_request("answerCallbackQuery", {
-            "callback_query_id": callback_id,
-            "text": f"✅ «{name[:30]}...» перенесено в сданные!"
-        })
-        await handle_deadlines_command(chat_id)
     else:
         events_dict[event_id] = {
             "is_completed": True,
@@ -381,14 +434,11 @@ async def handle_mark_done(chat_id: str, callback_id: str, event_id: str):
         }
         state_data["events"] = events_dict
         save_events_state(state_data)
-        await tg_request("answerCallbackQuery", {
-            "callback_query_id": callback_id,
-            "text": "✅ Задание отмечено как выполненное!"
-        })
-        await handle_deadlines_command(chat_id)
+
+    await handle_deadlines_command(chat_id, message_id=message_id)
 
 
-async def handle_mark_undone(chat_id: str, callback_id: str, event_id: str):
+async def handle_mark_undone(chat_id: str, message_id: Optional[int], event_id: str):
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
@@ -398,11 +448,7 @@ async def handle_mark_undone(chat_id: str, callback_id: str, event_id: str):
         state_data["events"] = events_dict
         save_events_state(state_data)
 
-        await tg_request("answerCallbackQuery", {
-            "callback_query_id": callback_id,
-            "text": "↩️ Задание возвращено в активный список!"
-        })
-        await handle_completed_command(chat_id)
+    await handle_completed_command(chat_id, message_id=message_id)
 
 
 async def background_monitoring_task():
@@ -415,7 +461,7 @@ async def background_monitoring_task():
                 await asyncio.sleep(CHECK_INTERVAL * 60)
                 continue
 
-            events = await get_events(force_refresh=True)
+            events = await update_events_cache()
             state_data = load_events_state()
             events_dict = state_data.get("events", {})
 
@@ -426,7 +472,6 @@ async def background_monitoring_task():
                 event_key = str(event.event_id)
                 event_state = events_dict.get(event_key)
 
-                # 1. ОБНАРУЖЕНИЕ НОВОГО СОБЫТИЯ
                 if not event_state:
                     event_state = {
                         "name": event.name,
@@ -445,7 +490,7 @@ async def background_monitoring_task():
                         title = "🔓 *Запланировано открытие теста / задания:*" if event.is_opening else "🆕 *В СДО МИРЭА добавлено новое задание:*"
                         card = format_deadline_card(event)
                         kb = {"inline_keyboard": [[{"text": "✅ Отметить сданным", "callback_data": f"done_{event.event_id}"}]]}
-                        await tg_request("sendMessage", {
+                        await tg_api("sendMessage", {
                             "chat_id": TELEGRAM_CHAT_ID,
                             "text": f"{title}\n\n{card}",
                             "parse_mode": "Markdown",
@@ -459,7 +504,7 @@ async def background_monitoring_task():
                 if event_state.get("is_completed", False):
                     continue
 
-                # 2. ПЕРЕНОС ДЕДЛАЙНА
+                # Перенос дедлайна
                 old_ts = event_state.get("due_timestamp", event.due_timestamp)
                 time_shift = event.due_timestamp - old_ts
 
@@ -477,7 +522,7 @@ async def background_monitoring_task():
                         f"🔗 [📝 К заданию]({event.url}) • [📚 Страница в СДО]({event.event_view_url})\n"
                     )
                     kb = {"inline_keyboard": [[{"text": "✅ Отметить сданным", "callback_data": f"done_{event.event_id}"}]]}
-                    await tg_request("sendMessage", {
+                    await tg_api("sendMessage", {
                         "chat_id": TELEGRAM_CHAT_ID,
                         "text": text,
                         "parse_mode": "Markdown",
@@ -488,7 +533,7 @@ async def background_monitoring_task():
                     event_state["due_timestamp"] = event.due_timestamp
                     event_state["alerts_sent"] = ["discovered"]
 
-                # 3. МОМЕНТ ОТКРЫТИЯ
+                # Открытие теста
                 if event.is_opening:
                     if now_ts >= event.due_timestamp and (now_ts - event.due_timestamp) <= 43200:
                         if not event_state.get("opened_alert_sent", False):
@@ -500,7 +545,7 @@ async def background_monitoring_task():
                                 f"🔗 [📝 Начать выполнение]({event.url}) • [📚 В СДО]({event.event_view_url})\n"
                             )
                             kb = {"inline_keyboard": [[{"text": "✅ Отметить выполненным", "callback_data": f"done_{event.event_id}"}]]}
-                            await tg_request("sendMessage", {
+                            await tg_api("sendMessage", {
                                 "chat_id": TELEGRAM_CHAT_ID,
                                 "text": text,
                                 "parse_mode": "Markdown",
@@ -509,7 +554,7 @@ async def background_monitoring_task():
                             })
                             event_state["opened_alert_sent"] = True
 
-                # 4. НАПОМИНАНИЯ
+                # Напоминания
                 if not event.is_opening:
                     hours_left = (event.due_timestamp - now_ts) / 3600.0
                     alerts_sent = event_state.get("alerts_sent", [])
@@ -517,7 +562,7 @@ async def background_monitoring_task():
                     if 0 < hours_left <= 24 and "24h" not in alerts_sent:
                         card = format_deadline_card(event)
                         kb = {"inline_keyboard": [[{"text": "✅ Отметить сданным", "callback_data": f"done_{event.event_id}"}]]}
-                        await tg_request("sendMessage", {
+                        await tg_api("sendMessage", {
                             "chat_id": TELEGRAM_CHAT_ID,
                             "text": f"⚠️ *Внимание! До дедлайна остались сутки:*\n\n{card}",
                             "parse_mode": "Markdown",
@@ -529,7 +574,7 @@ async def background_monitoring_task():
                     if 0 < hours_left <= 3 and "3h" not in alerts_sent:
                         card = format_deadline_card(event)
                         kb = {"inline_keyboard": [[{"text": "✅ Отметить сданным", "callback_data": f"done_{event.event_id}"}]]}
-                        await tg_request("sendMessage", {
+                        await tg_api("sendMessage", {
                             "chat_id": TELEGRAM_CHAT_ID,
                             "text": f"🚨 *Срочно! До окончания сдачи меньше 3 часов:*\n\n{card}",
                             "parse_mode": "Markdown",
@@ -552,32 +597,32 @@ async def background_monitoring_task():
 
 
 async def poll_telegram_updates():
-    global TG_CLIENT
+    global POLL_CLIENT
     logger.info("Long polling Telegram запущен...")
     offset = 0
 
-    if TG_CLIENT is None or TG_CLIENT.is_closed:
-        TG_CLIENT = httpx.AsyncClient(timeout=35.0)
+    if POLL_CLIENT is None or POLL_CLIENT.is_closed:
+        POLL_CLIENT = httpx.AsyncClient(timeout=25.0)
 
     while True:
         try:
-            params = {"offset": offset, "timeout": 20}
-            resp = await TG_CLIENT.get(f"{TG_API_URL}/getUpdates", params=params)
+            params = {"offset": offset, "timeout": 15}
+            resp = await POLL_CLIENT.get(f"{TG_API_URL}/getUpdates", params=params)
             
             if resp.status_code != 200:
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 continue
 
             data = resp.json()
             if not data.get("ok"):
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 continue
 
             updates = data.get("result", [])
             for update in updates:
                 offset = update["update_id"] + 1
 
-                # 1. Текстовые команды
+                # 1. Текстовые сообщения
                 if "message" in update:
                     msg = update["message"]
                     chat_id = str(msg["chat"]["id"])
@@ -594,39 +639,40 @@ async def poll_telegram_updates():
                     elif text in ["/check", "🔄 Обновить СДО"]:
                         asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, force_refresh=True))
 
-                # 2. Нажатия Inline-кнопок
+                # 2. Inline кнопки (моментальный ответ и обновление на месте)
                 elif "callback_query" in update:
                     cb = update["callback_query"]
                     cb_id = cb["id"]
-                    chat_id = str(cb["message"]["chat"]["id"])
+                    msg = cb.get("message", {})
+                    chat_id = str(msg.get("chat", {}).get("id"))
+                    message_id = msg.get("message_id")
                     cb_data = cb.get("data", "")
 
+                    # Мгновенно гасим спиннер кнопки (0.01 сек)
+                    asyncio.create_task(tg_api("answerCallbackQuery", {"callback_query_id": cb_id}))
+
                     if cb_data == "show_deadlines":
-                        asyncio.create_task(tg_request("answerCallbackQuery", {"callback_query_id": cb_id}))
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21))
+                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, message_id=message_id))
                     elif cb_data == "show_deadlines_30":
-                        asyncio.create_task(tg_request("answerCallbackQuery", {"callback_query_id": cb_id}))
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=31))
+                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=31, message_id=message_id))
+                    elif cb_data == "show_menu":
+                        asyncio.create_task(handle_start_or_menu(chat_id, message_id=message_id))
                     elif cb_data == "refresh_deadlines":
-                        asyncio.create_task(tg_request("answerCallbackQuery", {"callback_query_id": cb_id, "text": "Обновляю данные из СДО..."}))
-                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, force_refresh=True))
+                        asyncio.create_task(handle_deadlines_command(chat_id, days_limit=21, message_id=message_id, force_refresh=True))
                     elif cb_data == "show_completed":
-                        asyncio.create_task(tg_request("answerCallbackQuery", {"callback_query_id": cb_id}))
-                        asyncio.create_task(handle_completed_command(chat_id))
+                        asyncio.create_task(handle_completed_command(chat_id, message_id=message_id))
                     elif cb_data.startswith("done_"):
                         ev_id = cb_data.replace("done_", "")
-                        asyncio.create_task(handle_mark_done(chat_id, cb_id, ev_id))
+                        asyncio.create_task(handle_mark_done(chat_id, message_id, ev_id))
                     elif cb_data.startswith("undone_"):
                         ev_id = cb_data.replace("undone_", "")
-                        asyncio.create_task(handle_mark_undone(chat_id, cb_id, ev_id))
-                    else:
-                        asyncio.create_task(tg_request("answerCallbackQuery", {"callback_query_id": cb_id}))
+                        asyncio.create_task(handle_mark_undone(chat_id, message_id, ev_id))
 
         except httpx.TimeoutException:
             pass
         except Exception as e:
             logger.error(f"Ошибка в polling: {e}")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
 
 async def main():
@@ -634,18 +680,17 @@ async def main():
         print("ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
         return
 
-    # Загружаем первоначальный кэш событий
     try:
-        await get_events(force_refresh=True)
+        await update_events_cache()
     except Exception as e:
-        logger.warning(f"Первоначальная загрузка кэша: {e}")
+        logger.warning(f"Кэш при старте: {e}")
 
     try:
         await set_bot_menu_commands()
     except Exception as e:
         logger.warning(f"Команды меню: {e}")
 
-    logger.info("Бот запущен с ультрабыстрым пулом соединений и кэшированием...")
+    logger.info("Бот готов к мгновенной работе...")
     
     await asyncio.gather(
         background_monitoring_task(),
