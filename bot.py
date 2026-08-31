@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+import socket
 import asyncio
 import logging
 import re
@@ -9,6 +10,13 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
+# 1. Принудительный IPv4 (полностью устраняет зависания сетевых сокетов на IPv6 в РФ)
+orig_getaddrinfo = socket.getaddrinfo
+def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = ipv4_getaddrinfo
+
+# 2. Настройка UTF-8 для консоли
 if sys.platform == "win32":
     if sys.stdout is not None:
         try:
@@ -56,7 +64,6 @@ CACHED_EVENTS: List[DeadlineEvent] = []
 
 
 def clean_text_for_markdown(text: str) -> str:
-    """Удаляет спецсимволы, ломающие Markdown разметку Telegram"""
     if not text:
         return ""
     text = text.replace("_", " ").replace("[", "(").replace("]", ")").replace("*", "").replace("`", "")
@@ -141,16 +148,13 @@ def format_time_diff(diff_seconds: int) -> str:
 async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
     global API_CLIENT
     if API_CLIENT is None or API_CLIENT.is_closed:
-        API_CLIENT = httpx.AsyncClient(timeout=15.0)
+        API_CLIENT = httpx.AsyncClient(timeout=10.0)
     try:
         resp = await API_CLIENT.post(f"{TG_API_URL}/{method}", json=payload or {})
         data = resp.json()
-        
-        # Игнорируем штатную ситуацию "message is not modified"
         desc = data.get("description", "")
         if not data.get("ok") and "message is not modified" not in desc:
             logger.warning(f"Telegram API ({method}): {desc}")
-            
         return data
     except Exception as e:
         logger.error(f"Сетевая ошибка Telegram API ({method}): {e}")
@@ -158,7 +162,6 @@ async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
 
 
 async def send_or_edit_message(chat_id: str, message_id: Optional[int], text: str, reply_markup: Optional[Dict] = None):
-    """Пытается отредактировать сообщение на месте, при невозможности отправляет новое"""
     if message_id:
         res = await tg_api("editMessageText", {
             "chat_id": chat_id,
@@ -594,7 +597,6 @@ async def poll_telegram_updates():
             for update in updates:
                 offset = update["update_id"] + 1
 
-                # 1. Текстовые сообщения
                 if "message" in update:
                     msg = update["message"]
                     chat_id = str(msg["chat"]["id"])
@@ -611,7 +613,6 @@ async def poll_telegram_updates():
                     elif text in ["/check", "🔄 Обновить СДО"]:
                         asyncio.create_task(handle_force_refresh_command(chat_id))
 
-                # 2. Кнопки (мгновенно)
                 elif "callback_query" in update:
                     cb = update["callback_query"]
                     cb_id = cb["id"]
@@ -661,7 +662,7 @@ async def main():
     except Exception as e:
         logger.warning(f"Команды меню: {e}")
 
-    logger.info("Бот запущен и готов к работе!")
+    logger.info("Бот запущен с принудительным IPv4 и мгновенным откликом!")
     
     await asyncio.gather(
         background_monitoring_task(),
