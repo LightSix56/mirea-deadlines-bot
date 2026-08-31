@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
-# 1. Принудительный IPv4 (полностью исключает зависания сетевых сокетов на IPv6 в РФ)
+# 1. Принудительный IPv4 (устраняет любые зависания на IPv6 сокетах в РФ)
 orig_getaddrinfo = socket.getaddrinfo
 def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
@@ -58,7 +58,7 @@ TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 # Выделенный клиент для Polling
 POLL_CLIENT: Optional[httpx.AsyncClient] = None
 
-# Кэш в оперативной памяти (0 запросов к МИРЭА при кликах)
+# Кэш в памяти
 CACHED_EVENTS: List[DeadlineEvent] = []
 
 
@@ -146,7 +146,6 @@ def format_time_diff(diff_seconds: int) -> str:
 
 
 async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
-    """Надежный запрос к Telegram API без зависаний сокетов"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(f"{TG_API_URL}/{method}", json=payload or {})
@@ -183,7 +182,6 @@ async def send_or_edit_message(chat_id: str, message_id: Optional[int], text: st
 
 
 def get_bottom_reply_keyboard() -> Dict:
-    """Постоянные кнопки внизу чата"""
     return {
         "keyboard": [
             [{"text": "🟢 Открытые дедлайны"}, {"text": "🔒 Неактивные дедлайны"}],
@@ -205,7 +203,6 @@ async def set_bot_menu_commands():
 
 
 async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
-    """Главное меню"""
     kb = {
         "inline_keyboard": [
             [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -216,7 +213,6 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
     }
     text = "👋 *Главное меню СДО РТУ МИРЭА*"
     if not message_id:
-        # При первом вводе /start или /menu отправляем также нижнюю клавиатуру
         await tg_api("sendMessage", {
             "chat_id": chat_id,
             "text": text,
@@ -228,9 +224,12 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
 
 
 async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает только ОТКРЫТЫЕ и доступные для сдачи дедлайны"""
+    """Показывает только ОТКРЫТЫЕ и доступные для сдачи дедлайны (на 30 дней)"""
     global CACHED_EVENTS
     try:
+        if not CACHED_EVENTS:
+            await fetch_moodle_calendar_to_cache()
+
         all_events = CACHED_EVENTS
         state_data = load_events_state()
         events_dict = state_data.get("events", {})
@@ -244,7 +243,6 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
         # Собираем открытые незакрытые работы
         available_events = []
         for event in all_events:
-            # Скрываем не открывшиеся тесты (они в Неактивных)
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
@@ -268,18 +266,7 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
             is_month_extended = True
 
         if not target_events:
-            future_event = available_events[0] if available_events else None
-            nearest_info = ""
-            if future_event:
-                days_away = (future_event.due_timestamp - now_ts) / 86400.0
-                f_name = clean_text_for_markdown(future_event.clean_name)
-                f_course = clean_text_for_markdown(future_event.course_name)
-                nearest_info = (
-                    f"\n\n🗓 *Ближайшая сдача:* `{future_event.formatted_date}` (через {days_away:.0f} дн.)\n"
-                    f"📌 *{f_name}* ({f_course})"
-                )
-
-            text = f"🎉 *Горящих открытых дедлайнов нет.*{nearest_info}"
+            text = "🎉 *Горящих открытых дедлайнов нет.* Все доступные работы запланированы позже."
             kb = {
                 "inline_keyboard": [
                     [{"text": "🔒 Неактивные дедлайны", "callback_data": "show_inactive"}],
@@ -360,18 +347,26 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
 
 
 async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает НЕАКТИВНЫЕ (еще не открывшиеся) дедлайны и тесты"""
+    """Показывает НЕАКТИВНЫЕ (еще не открывшиеся тесты и задания на отдаленные месяцы)"""
     global CACHED_EVENTS
     try:
+        if not CACHED_EVENTS:
+            await fetch_moodle_calendar_to_cache()
+
         all_events = CACHED_EVENTS
         now = datetime.now(MSK_TZ)
         now_ts = int(now.timestamp())
+        month_seconds = 31 * 24 * 3600
 
-        # Собираем работы, которые откроются в будущем
-        inactive_events = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
+        # 1. Еще не открывшиеся тесты
+        unopened_tests = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
+        # 2. Задания на дальние месяцы (срок > 1 месяца)
+        far_future_tasks = [e for e in all_events if (not e.is_opening) and (e.due_timestamp - now_ts > month_seconds)]
 
-        if not inactive_events:
-            text = "🔒 *Неактивных (закрытых) тестов нет.*\n\nВсе запланированные в СДО работы уже открыты!"
+        total_inactive = len(unopened_tests) + len(far_future_tasks)
+
+        if total_inactive == 0:
+            text = "🔒 *Неактивных заданий нет.* Все запланированные в СДО работы уже открыты и входят в ближайший список!"
             kb = {
                 "inline_keyboard": [
                     [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -381,23 +376,42 @@ async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None
             await send_or_edit_message(chat_id, message_id, text, kb)
             return
 
-        msg_parts = [f"🔒 *Неактивные дедлайны (еще не открылись)* — {len(inactive_events)}:\n"]
-        cards = []
-        for idx, ev in enumerate(inactive_events[:12], 1):
-            clean_name = clean_text_for_markdown(ev.clean_name)
-            clean_course = clean_text_for_markdown(ev.course_name)
-            event_link = f"[📚 Страница в СДО]({ev.event_view_url})"
-            cards.append(
-                f"{idx}. 🔒 *{clean_name}*\n"
-                f"📚 *Предмет:* {clean_course}\n"
-                f"⏰ *Открытие:* `{ev.formatted_date}`\n"
-                f"⏳ *Статус:* _{ev.time_left_str}_\n"
-                f"🔗 {event_link}\n"
-            )
+        msg_parts = [f"🔒 *Неактивные дедлайны и тесты* (всего: {total_inactive}):\n"]
 
-        msg_parts.append("\n────────────────────\n".join(cards))
+        # Секция 1: Закрытые тесты (откроются позже)
+        if unopened_tests:
+            msg_parts.append(f"⏳ *Тесты, которые откроются позже* — {len(unopened_tests)}:")
+            cards = []
+            for idx, ev in enumerate(unopened_tests[:8], 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                event_link = f"[📚 Страница в СДО]({ev.event_view_url})"
+                cards.append(
+                    f"{idx}. 🔒 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Открытие доступа:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 {event_link}\n"
+                )
+            msg_parts.append("\n────────────────────\n".join(cards))
+
+        # Секция 2: Задания на отдаленные месяцы (октябрь-декабрь)
+        if far_future_tasks:
+            msg_parts.append(f"\n🗓 *Задания на отдаленные месяцы (срок > 30 дней)* — {len(far_future_tasks)}:")
+            cards = []
+            for idx, ev in enumerate(far_future_tasks[:6], 1):
+                clean_name = clean_text_for_markdown(ev.clean_name)
+                clean_course = clean_text_for_markdown(ev.course_name)
+                cards.append(
+                    f"{idx}. 📌 *{clean_name}*\n"
+                    f"📚 *Предмет:* {clean_course}\n"
+                    f"⏰ *Срок сдачи:* `{ev.formatted_date}`\n"
+                    f"⏳ *Статус:* _{ev.time_left_str}_\n"
+                    f"🔗 [📝 К заданию]({ev.url})\n"
+                )
+            msg_parts.append("\n────────────────────\n".join(cards))
+
         final_text = "\n".join(msg_parts)
-
         kb = {
             "inline_keyboard": [
                 [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -412,7 +426,6 @@ async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None
 
 
 async def handle_completed_command(chat_id: str, message_id: Optional[int] = None):
-    """Показывает сданные работы"""
     state_data = load_events_state()
     events_dict = state_data.get("events", {})
 
