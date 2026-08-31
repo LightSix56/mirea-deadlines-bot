@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 
-# 1. Принудительный IPv4
+# 1. Принудительный IPv4 (полностью исключает зависания сетевых сокетов на IPv6 в РФ)
 orig_getaddrinfo = socket.getaddrinfo
 def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
@@ -55,11 +55,10 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "2"))
 STATE_FILE = os.path.join(BASE_DIR, "events_state.json")
 TG_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-# Выделенные клиенты
-API_CLIENT: Optional[httpx.AsyncClient] = None
+# Выделенный клиент для Polling
 POLL_CLIENT: Optional[httpx.AsyncClient] = None
 
-# Кэш в памяти
+# Кэш в оперативной памяти (0 запросов к МИРЭА при кликах)
 CACHED_EVENTS: List[DeadlineEvent] = []
 
 
@@ -147,16 +146,15 @@ def format_time_diff(diff_seconds: int) -> str:
 
 
 async def tg_api(method: str, payload: Optional[Dict] = None) -> Dict:
-    global API_CLIENT
-    if API_CLIENT is None or API_CLIENT.is_closed:
-        API_CLIENT = httpx.AsyncClient(timeout=10.0)
+    """Надежный запрос к Telegram API без зависаний сокетов"""
     try:
-        resp = await API_CLIENT.post(f"{TG_API_URL}/{method}", json=payload or {})
-        data = resp.json()
-        desc = data.get("description", "")
-        if not data.get("ok") and "message is not modified" not in desc:
-            logger.warning(f"Telegram API ({method}): {desc}")
-        return data
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{TG_API_URL}/{method}", json=payload or {})
+            data = resp.json()
+            desc = data.get("description", "")
+            if not data.get("ok") and "message is not modified" not in desc:
+                logger.warning(f"Telegram API ({method}): {desc}")
+            return data
     except Exception as e:
         logger.error(f"Сетевая ошибка Telegram API ({method}): {e}")
         return {}
@@ -184,11 +182,22 @@ async def send_or_edit_message(chat_id: str, message_id: Optional[int], text: st
     })
 
 
+def get_bottom_reply_keyboard() -> Dict:
+    """Постоянные кнопки внизу чата"""
+    return {
+        "keyboard": [
+            [{"text": "🟢 Открытые дедлайны"}, {"text": "🔒 Неактивные дедлайны"}],
+            [{"text": "✅ Сданные работы"}, {"text": "📱 Главное меню"}]
+        ],
+        "resize_keyboard": True
+    }
+
+
 async def set_bot_menu_commands():
     commands = [
         {"command": "deadlines", "description": "🟢 Открытые дедлайны"},
         {"command": "inactive", "description": "🔒 Неактивные дедлайны"},
-        {"command": "completed", "description": "✅ Сданные / закрытые работы"},
+        {"command": "completed", "description": "✅ Сданные работы"},
         {"command": "menu", "description": "📱 Главное меню"},
         {"command": "check", "description": "🔄 Принудительно обновить СДО"}
     ]
@@ -196,7 +205,7 @@ async def set_bot_menu_commands():
 
 
 async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
-    """Минималистичное главное меню без лишнего текста"""
+    """Главное меню"""
     kb = {
         "inline_keyboard": [
             [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -206,7 +215,16 @@ async def handle_start_or_menu(chat_id: str, message_id: Optional[int] = None):
         ]
     }
     text = "👋 *Главное меню СДО РТУ МИРЭА*"
-    await send_or_edit_message(chat_id, message_id, text, kb)
+    if not message_id:
+        # При первом вводе /start или /menu отправляем также нижнюю клавиатуру
+        await tg_api("sendMessage", {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": kb
+        })
+    else:
+        await send_or_edit_message(chat_id, message_id, text, kb)
 
 
 async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = None):
@@ -226,6 +244,7 @@ async def handle_deadlines_command(chat_id: str, message_id: Optional[int] = Non
         # Собираем открытые незакрытые работы
         available_events = []
         for event in all_events:
+            # Скрываем не открывшиеся тесты (они в Неактивных)
             if event.is_opening and event.due_timestamp > now_ts:
                 continue
 
@@ -352,7 +371,7 @@ async def handle_inactive_command(chat_id: str, message_id: Optional[int] = None
         inactive_events = [e for e in all_events if e.is_opening and e.due_timestamp > now_ts]
 
         if not inactive_events:
-            text = "🔒 *Неактивных (закрытых) тестов нет.* Все запланированные работы уже открыты!"
+            text = "🔒 *Неактивных (закрытых) тестов нет.*\n\nВсе запланированные в СДО работы уже открыты!"
             kb = {
                 "inline_keyboard": [
                     [{"text": "🟢 Открытые дедлайны", "callback_data": "show_deadlines"}],
@@ -721,7 +740,7 @@ async def main():
     except Exception as e:
         logger.warning(f"Команды меню: {e}")
 
-    logger.info("Бот запущен с чистым меню и разделением на Открытые/Неактивные дедлайны!")
+    logger.info("Бот готов к надежной и мгновенной работе!")
     
     await asyncio.gather(
         background_monitoring_task(),
