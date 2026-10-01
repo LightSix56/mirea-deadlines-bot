@@ -594,17 +594,18 @@
   "1322673@online-edu.mirea.ru": {
     "name": "Практическое задание 1 - срок сдачи",
     "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
-    "due_timestamp": 1790246580,
+    "due_timestamp": 1790937780,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
-      "discovered"
+      "discovered",
+      "24h"
     ]
   },
   "1319542@online-edu.mirea.ru": {
     "name": "Практическая работа №1 - срок сдачи",
     "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
-    "due_timestamp": 1790715600,
+    "due_timestamp": 1793307600,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -634,7 +635,7 @@
   "1326599@online-edu.mirea.ru": {
     "name": "Практическое задание 2 - срок сдачи",
     "course": "Моделирование бизнес-процессов_Зачет_1/2_[I.26-27]_193",
-    "due_timestamp": 1792529940,
+    "due_timestamp": 1791838740,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -644,7 +645,7 @@
   "1321611@online-edu.mirea.ru": {
     "name": "Практическое задание 1 - срок сдачи",
     "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
-    "due_timestamp": 1792677240,
+    "due_timestamp": 1791665940,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -724,7 +725,7 @@
   "1320025@online-edu.mirea.ru": {
     "name": "Практическое задание 1 - срок сдачи",
     "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1793501700,
+    "due_timestamp": 1792464900,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -784,7 +785,7 @@
   "1321609@online-edu.mirea.ru": {
     "name": "Практическое задание 1 - срок сдачи",
     "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1795355520,
+    "due_timestamp": 1792936320,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -794,7 +795,7 @@
   "1321613@online-edu.mirea.ru": {
     "name": "Тестирование 1 открывается",
     "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
-    "due_timestamp": 1795355760,
+    "due_timestamp": 1797717360,
     "is_opening": true,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -904,7 +905,7 @@
   "1319547@online-edu.mirea.ru": {
     "name": "Практическая работа №4 - срок сдачи",
     "course": "Системы поддержки принятия решений_Экзамен_1/1_[I.26-27]_196",
-    "due_timestamp": 1796850000,
+    "due_timestamp": 1797714000,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -934,7 +935,7 @@
   "1319677@online-edu.mirea.ru": {
     "name": "Тестирование 1 открывается",
     "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1797248640,
+    "due_timestamp": 1797284640,
     "is_opening": true,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -954,7 +955,7 @@
   "1319710@online-edu.mirea.ru": {
     "name": "Тестирование 1 открывается",
     "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1797340860,
+    "due_timestamp": 1797282180,
     "is_opening": true,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1004,7 +1005,7 @@
   "1321610@online-edu.mirea.ru": {
     "name": "Практическое задание 2 - срок сдачи",
     "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1797947580,
+    "due_timestamp": 1794232380,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1014,7 +1015,7 @@
   "1321612@online-edu.mirea.ru": {
     "name": "Практическое задание 2 - срок сдачи",
     "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
-    "due_timestamp": 1797947700,
+    "due_timestamp": 1794344100,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1024,7 +1025,7 @@
   "1321614@online-edu.mirea.ru": {
     "name": "Тестирование 1 закрывается",
     "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
-    "due_timestamp": 1797947760,
+    "due_timestamp": 1798059360,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1044,7 +1045,7 @@
   "1321619@online-edu.mirea.ru": {
     "name": "Практическое задание 2 - срок сдачи",
     "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1797948000,
+    "due_timestamp": 1795183200,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1104,7 +1105,7 @@
   "1319678@online-edu.mirea.ru": {
     "name": "Тестирование 1 закрывается",
     "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1798112640,
+    "due_timestamp": 1797799440,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1114,7 +1115,7 @@
   "1319711@online-edu.mirea.ru": {
     "name": "Тестирование 1 закрывается",
     "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
-    "due_timestamp": 1798204860,
+    "due_timestamp": 1797798060,
     "is_opening": false,
     "opened_alert_sent": false,
     "alerts_sent": [
@@ -1174,6 +1175,106 @@
   "1319392@online-edu.mirea.ru": {
     "name": "Практическая работа №5 - срок сдачи",
     "course": "Архитектура предприятия_Экзамен_1/1_[I.26-27]_196",
+    "due_timestamp": 1798664340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1341570@online-edu.mirea.ru": {
+    "name": "Аналитическая работа 1 - срок сдачи",
+    "course": "Анализ и диагностика финансово-хозяйственной деятельности предприятия_Экзамен_1/1_[I.26-27]_199",
+    "due_timestamp": 1791579540,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1345478@online-edu.mirea.ru": {
+    "name": "Кейс 2 - практика 2 - срок сдачи",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1794085200,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326974@online-edu.mirea.ru": {
+    "name": "Анализ проблемной ситуации - срок сдачи",
+    "course": "Анализ и диагностика финансово-хозяйственной деятельности предприятия_Экзамен_1/1_[I.26-27]_199",
+    "due_timestamp": 1795986000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1328650@online-edu.mirea.ru": {
+    "name": "Решение задания №3 - срок сдачи",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1795986000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326970@online-edu.mirea.ru": {
+    "name": "Аналитическая работа 2 - срок сдачи",
+    "course": "Анализ и диагностика финансово-хозяйственной деятельности предприятия_Экзамен_1/1_[I.26-27]_199",
+    "due_timestamp": 1796072340,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1328633@online-edu.mirea.ru": {
+    "name": "Решение кейса 3 - срок сдачи",
+    "course": "Цифровое управление человеческими ресурсами_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797714000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1328649@online-edu.mirea.ru": {
+    "name": "Решение кейса 3 - срок сдачи",
+    "course": "ИТ-инфраструктура организации_Зачет_1/1_[I.26-27]_300",
+    "due_timestamp": 1797714000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1328651@online-edu.mirea.ru": {
+    "name": "Решение задания №4 - срок сдачи",
+    "course": "Планирование и организация производственного процесса_Экзамен_1/1_[I.26-27]_300",
+    "due_timestamp": 1797714000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1337551@online-edu.mirea.ru": {
+    "name": "ГРАФИК ПЕРЕСДАЧ - срок сдачи",
+    "course": "Документирование управленческой деятельности_Зачет_1/1_[I.26-27]_197",
+    "due_timestamp": 1798146000,
+    "is_opening": false,
+    "opened_alert_sent": false,
+    "alerts_sent": [
+      "discovered"
+    ]
+  },
+  "1326972@online-edu.mirea.ru": {
+    "name": "Расчетно-графическая работа - срок сдачи",
+    "course": "Анализ и диагностика финансово-хозяйственной деятельности предприятия_Экзамен_1/1_[I.26-27]_199",
     "due_timestamp": 1798664340,
     "is_opening": false,
     "opened_alert_sent": false,
